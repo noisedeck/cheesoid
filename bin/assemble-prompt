@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# bin/assemble-prompt — Concatenate SOUL + prompt + memory for headless mode
+# Usage: assemble-prompt <persona-dir> <prompt-file>
+
+set -euo pipefail
+
+PERSONA_DIR="${1:?Usage: assemble-prompt <persona-dir> <prompt-file>}"
+PROMPT_FILE="${2:?Usage: assemble-prompt <persona-dir> <prompt-file>}"
+
+output=""
+
+# 1. SOUL.md (always first)
+if [ -f "$PERSONA_DIR/SOUL.md" ]; then
+  output+="$(cat "$PERSONA_DIR/SOUL.md")"
+  output+=$'\n\n---\n\n'
+fi
+
+# 2. System/wakeup prompt
+if [ -f "$PERSONA_DIR/$PROMPT_FILE" ]; then
+  output+="$(cat "$PERSONA_DIR/$PROMPT_FILE")"
+  output+=$'\n\n---\n\n'
+fi
+
+# 3. Memory files
+MEMORY_DIR="$PERSONA_DIR/memory"
+if [ -d "$MEMORY_DIR" ]; then
+  for f in "$MEMORY_DIR"/*.md; do
+    [ -f "$f" ] || continue
+    output+="$(cat "$f")"
+    output+=$'\n\n'
+  done
+fi
+
+echo "$output"

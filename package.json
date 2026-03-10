@@ -1,0 +1,17 @@
+{
+  "name": "cheesoid",
+  "version": "0.1.0",
+  "description": "Generic agentic persona framework",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "env $(cat .env 2>/dev/null | xargs) node --watch server/index.js",
+    "test": "node --test 'tests/*.test.js'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "express": "^4.21.0",
+    "js-yaml": "^4.1.0"
+  }
+}

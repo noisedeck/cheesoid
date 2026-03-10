@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cheesoid</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="app">
+    <div id="name-prompt" class="hidden">
+      <label for="name-input">What's your name?</label>
+      <div id="name-form">
+        <input type="text" id="name-input" placeholder="Enter your name" autocomplete="off">
+        <button id="name-btn">Join</button>
+      </div>
+    </div>
+    <div id="chat" class="hidden">
+      <aside id="sidebar">
+        <div id="sidebar-header">
+          <h1 id="persona-name">Cheesoid</h1>
+          <span id="presence-status"></span>
+        </div>
+        <div id="sidebar-section-label">People</div>
+        <ul id="participants"></ul>
+        <button id="sidebar-toggle" title="Collapse sidebar">&lsaquo;</button>
+      </aside>
+      <div id="chat-main">
+        <header>
+          <div id="header-left">
+            <button id="sidebar-open" class="hidden" title="Open sidebar">&#9776;</button>
+            <span id="channel-name"># cheesoid</span>
+          </div>
+          <div id="header-right">
+            <button id="reset-btn" title="Reset conversation">Reset</button>
+          </div>
+        </header>
+        <main>
+          <div id="messages"></div>
+          <div id="input-area">
+            <textarea id="input" placeholder="Say something..." rows="1"></textarea>
+            <button id="send-btn">Send</button>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/js/chat.js"></script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+import { pathToFileURL } from 'node:url'
+import { join } from 'node:path'
+
+/**
+ * Build the full tool set for a persona: memory tools + persona-specific tools.
+ * Returns { definitions: [...], execute: async (name, input) => result }
+ */
+export async function loadTools(personaDir, config, memory, state, room) {
+  const memoryTools = buildMemoryTools(memory, state)
+  const roomTools = buildRoomTools(room, config)
+  let personaTools = { definitions: [], execute: async () => ({ error: 'unknown tool' }) }
+
+  if (config.tools) {
+    const toolsPath = join(personaDir, config.tools)
+    const toolsUrl = pathToFileURL(toolsPath).href
+    const mod = await import(toolsUrl)
+    personaTools = {
+      definitions: mod.definitions || [],
+      execute: mod.execute || (async () => ({ error: 'not implemented' })),
+    }
+  }
+
+  const allDefinitions = [...memoryTools.definitions, ...roomTools.definitions, ...personaTools.definitions]
+
+  async function execute(name, input) {
+    if (memoryTools.handles(name)) {
+      return memoryTools.execute(name, input)
+    }
+    if (roomTools.handles(name)) {
+      return roomTools.execute(name, input)
+    }
+    return personaTools.execute(name, input)
+  }
+
+  return { definitions: allDefinitions, execute }
+}
+
+function buildRoomTools(room, config) {
+  const definitions = [
+    {
+      name: 'send_chat_message',
+      description: 'Send a message to the chat room. Everyone in the room will see it. Use this when you want to communicate with people in the room from a webhook or background context.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'The message to send to the chat room' },
+        },
+        required: ['text'],
+      },
+    },
+  ]
+
+  const toolNames = new Set(definitions.map(d => d.name))
+
+  async function execute(name, input) {
+    switch (name) {
+      case 'send_chat_message': {
+        const displayName = config.display_name || config.name
+        room.broadcast({ type: 'assistant_message', text: input.text })
+        room.recordHistory({ type: 'assistant_message', text: input.text })
+        room.messages.push({ role: 'assistant', content: input.text })
+        return { output: 'Message sent to chat room.' }
+      }
+      default:
+        return { output: `Unknown room tool: ${name}`, is_error: true }
+    }
+  }
+
+  return { definitions, handles: (name) => toolNames.has(name), execute }
+}
+
+function buildMemoryTools(memory, state) {
+  const definitions = [
+    {
+      name: 'read_memory',
+      description: 'Read a memory file. Use list_memory first to see available files.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          filename: { type: 'string', description: 'The memory file to read (e.g. "topics.md")' },
+        },
+        required: ['filename'],
+      },
+    },
+    {
+      name: 'write_memory',
+      description: 'Write or overwrite a memory file. Use for saving important information across sessions. Do not write to SOUL.md.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          filename: { type: 'string', description: 'File to write (e.g. "notes.md")' },
+          content: { type: 'string', description: 'Full content to write' },
+        },
+        required: ['filename', 'content'],
+      },
+    },
+    {
+      name: 'append_memory',
+      description: 'Append content to an existing memory file.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          filename: { type: 'string', description: 'File to append to' },
+          content: { type: 'string', description: 'Content to append' },
+        },
+        required: ['filename', 'content'],
+      },
+    },
+    {
+      name: 'list_memory',
+      description: 'List all available memory files.',
+      input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'get_state',
+      description: 'Read your current persistent state (mood, energy, focus, open threads, session history). Call this at the start of every session to orient yourself.',
+      input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'update_state',
+      description: 'Update your persistent state. Use this to track your mood, energy, current focus, and open threads across sessions. Call this before a session ends.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          mood: { type: 'string', description: 'Your current mood (e.g. "curious", "focused", "tired", "energized", "contemplative")' },
+          energy: { type: 'string', description: 'Your energy level (e.g. "rested", "engaged", "spent")' },
+          focus: { type: 'string', description: 'What you are currently focused on or thinking about. Null to clear.' },
+          open_threads: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of unresolved topics, pending tasks, or things to follow up on',
+          },
+          last_session: { type: 'string', description: 'Brief summary of what happened in this session' },
+        },
+      },
+    },
+  ]
+
+  const memoryToolNames = new Set(definitions.map(d => d.name))
+
+  async function execute(name, input) {
+    switch (name) {
+      case 'read_memory': {
+        const content = await memory.read(input.filename)
+        return content !== null
+          ? { output: content }
+          : { output: `File not found: ${input.filename}`, is_error: true }
+      }
+      case 'write_memory': {
+        if (input.filename === 'SOUL.md' || input.filename === '../SOUL.md') {
+          return { output: 'Cannot modify SOUL.md — it is immutable.', is_error: true }
+        }
+        await memory.write(input.filename, input.content)
+        return { output: `Written: ${input.filename}` }
+      }
+      case 'append_memory': {
+        await memory.append(input.filename, input.content)
+        return { output: `Appended to: ${input.filename}` }
+      }
+      case 'list_memory': {
+        const files = await memory.list()
+        return { output: files.length > 0 ? files.join('\n') : '(no memory files)' }
+      }
+      case 'get_state': {
+        if (!state) return { output: 'State not available', is_error: true }
+        await state.load()
+        return { output: JSON.stringify(state.data, null, 2) }
+      }
+      case 'update_state': {
+        if (!state) return { output: 'State not available', is_error: true }
+        const patch = {}
+        if (input.mood !== undefined) patch.mood = input.mood
+        if (input.energy !== undefined) patch.energy = input.energy
+        if (input.focus !== undefined) patch.focus = input.focus
+        if (input.open_threads !== undefined) patch.open_threads = input.open_threads
+        if (input.last_session !== undefined) patch.last_session = input.last_session
+        state.update(patch)
+        state.data.session_count = (state.data.session_count || 0) + 1
+        await state.save()
+        return { output: 'State updated.' }
+      }
+      default:
+        return { output: `Unknown memory tool: ${name}`, is_error: true }
+    }
+  }
+
+  return {
+    definitions,
+    handles: (name) => memoryToolNames.has(name),
+    execute,
+  }
+}
