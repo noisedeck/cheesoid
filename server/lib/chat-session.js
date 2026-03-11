@@ -8,6 +8,10 @@ import { RoomClient } from './room-client.js'
 const IDLE_THOUGHT_INTERVAL = 60 * 1000 // 1 minute
 const MAX_IDLE_INTERVAL = 8 * 60 * 60 * 1000 // 8 hours
 const MAX_HISTORY = 50
+const HEARTBEAT_INTERVAL = 30 * 1000 // 30 seconds — keeps SSE alive through proxies
+// Join/leave events are broadcast to SSE clients for UI presence updates
+// but never injected into agent context (this.messages) — the agent has
+// the participant list via presence events and doesn't need the churn.
 
 const IDLE_THOUGHT_PROMPT = `You have been idle for a while. No one is talking to you right now.
 
@@ -42,6 +46,7 @@ export class Room {
     this._pendingRoom = null // which room the current response targets
     this._messageQueue = [] // queued messages while busy
     this._idleInterval = IDLE_THOUGHT_INTERVAL // backs off with consecutive idle thoughts
+    this._heartbeatTimer = null
   }
 
   async initialize() {
@@ -77,8 +82,6 @@ export class Room {
     if (name) {
       this.participants.set(name, Date.now())
       this.broadcast({ type: 'presence', participants: this.participantList })
-      const label = isAgent ? `${name} (agent)` : name
-      this.messages.push({ role: 'user', content: `[${this._timestamp()}] * ${label} has joined` })
     }
     // Send scrollback to the newly connecting client
     const scrollback = this.getScrollback()
@@ -87,13 +90,18 @@ export class Room {
       res.write(data)
     }
 
+    // Start heartbeat if this is the first client
+    if (this.clients.size === 1) this._startHeartbeat()
+
     res.on('close', () => {
       this.clients.delete(res)
       if (name) {
         this.participants.delete(name)
         this.broadcast({ type: 'presence', participants: this.participantList })
-        this.messages.push({ role: 'user', content: `[${this._timestamp()}] * ${name} has left` })
       }
+
+      // Stop heartbeat if no clients remain
+      if (this.clients.size === 0) this._stopHeartbeat()
     })
   }
 
@@ -211,7 +219,8 @@ export class Room {
 
       const ts = this._timestamp()
       const tag = room === 'home' ? `[${ts}][${name}]` : `[${ts}][${room}/${name}]`
-      this.messages.push({ role: 'user', content: `${tag}: ${text}` })
+      const presence = room === 'home' ? ` (room: ${this.participantList.join(', ')})` : ''
+      this.messages.push({ role: 'user', content: `${tag}${presence}: ${text}` })
 
       if (room === 'home') {
         if (name) this.participants.set(name, Date.now())
@@ -344,6 +353,23 @@ export class Room {
     }
   }
 
+  // SSE heartbeat — sends a comment to keep connections alive through proxies
+  _startHeartbeat() {
+    if (this._heartbeatTimer) return
+    this._heartbeatTimer = setInterval(() => {
+      for (const client of this.clients) {
+        client.write(':heartbeat\n\n')
+      }
+    }, HEARTBEAT_INTERVAL)
+  }
+
+  _stopHeartbeat() {
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer)
+      this._heartbeatTimer = null
+    }
+  }
+
   reset() {
     this._clearIdleTimer()
     this.messages = []
@@ -356,6 +382,7 @@ export class Room {
 
   destroy() {
     this._clearIdleTimer()
+    this._stopHeartbeat()
     for (const client of this.roomClients.values()) {
       client.destroy()
     }

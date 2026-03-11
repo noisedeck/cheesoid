@@ -22,6 +22,7 @@ let idleBuffer = ''
 let lastSender = null
 let personaLabel = 'Cheesoid'
 let sending = false
+let reconnectTimer = null
 
 const AVATAR_COLORS = [
   'oklch(65% 0.15 0)',
@@ -119,14 +120,20 @@ async function enterRoom() {
   } catch {}
 
   // Connect to SSE stream
+  connectSSE()
+}
+
+function connectSSE() {
+  if (evtSource) evtSource.close()
   evtSource = new EventSource(`/api/chat/stream?name=${encodeURIComponent(myName)}`)
   evtSource.onmessage = handleEvent
   evtSource.onerror = () => {
-    setTimeout(() => {
-      evtSource.close()
-      evtSource = new EventSource(`/api/chat/stream?name=${encodeURIComponent(myName)}`)
-      evtSource.onmessage = handleEvent
-    }, 5000)
+    // Debounce — EventSource can fire multiple errors before we reconnect
+    if (reconnectTimer) return
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      connectSSE()
+    }, 3000)
   }
 
   input.focus()
