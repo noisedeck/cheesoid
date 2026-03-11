@@ -117,6 +117,7 @@ async function enterRoom() {
       presenceStatus.textContent = 'present'
       presenceStatus.className = 'active'
     }
+    if (data.participants) updateParticipants(data.participants)
   } catch {}
 
   // Connect to SSE stream
@@ -203,12 +204,27 @@ function handleEvent(e) {
     case 'done':
       if (assistantEl) {
         for (const tc of assistantEl.querySelectorAll('.tool-call')) tc.remove()
-        // Strip only backchannel tags (private agent coordination) from visible output
-        if (assistantBuffer.includes('<backchannel>')) {
-          assistantBuffer = assistantBuffer.replace(/<backchannel>[\s\S]*?<\/backchannel>/g, '').trim()
-          const body = assistantEl.querySelector('.message-body')
-          if (body) body.innerHTML = renderMarkdown(assistantBuffer)
+        // Extract thought tags and render as idle thoughts
+        if (assistantBuffer.includes('<thought>')) {
+          const thoughts = []
+          assistantBuffer = assistantBuffer.replace(/<thought>([\s\S]*?)<\/thought>/g, (_, content) => {
+            thoughts.push(content.trim())
+            return ''
+          })
+          for (const thought of thoughts) {
+            const el = document.createElement('div')
+            el.className = 'idle-thought'
+            el.innerHTML = renderMarkdown(thought)
+            messages.appendChild(el)
+          }
         }
+        // Strip backchannel tags from visible output
+        if (assistantBuffer.includes('<backchannel>')) {
+          assistantBuffer = assistantBuffer.replace(/<backchannel>[\s\S]*?<\/backchannel>/g, '')
+        }
+        assistantBuffer = assistantBuffer.trim()
+        const body = assistantEl.querySelector('.message-body')
+        if (body) body.innerHTML = renderMarkdown(assistantBuffer)
         // Remove empty ghost elements (backchannel-only responses)
         if (!assistantBuffer.trim()) {
           assistantEl.remove()
@@ -293,6 +309,7 @@ async function refreshPresence() {
       presenceStatus.textContent = s.mood
       presenceStatus.className = 'active'
     }
+    if (data.participants) updateParticipants(data.participants)
   } catch {}
 }
 

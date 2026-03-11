@@ -142,6 +142,7 @@ export class Room {
     this.recordHistory({ type: 'user_message', name, text })
     this.lastActivity = Date.now()
     this._clearIdleTimer()
+    this._idleInterval = IDLE_THOUGHT_INTERVAL // reset backoff on any activity
     this._startIdleTimer()
   }
 
