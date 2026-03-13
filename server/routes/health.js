@@ -17,6 +17,7 @@ router.get('/api/health', (req, res) => {
 
 router.get('/api/presence', async (req, res) => {
   const { persona, room } = req.app.locals
+  const authProxy = !!persona.config.auth_proxy
 
   // Use the room's state if initialized, otherwise load fresh
   let stateData = {}
@@ -28,11 +29,19 @@ router.get('/api/presence', async (req, res) => {
     stateData = state.data
   }
 
-  res.json({
+  const result = {
     persona: persona.config.display_name,
     state: stateData,
     participants: room.participantList,
-  })
+    auth_proxy: authProxy,
+  }
+
+  if (authProxy) {
+    const email = req.headers['x-gs-user-email']
+    if (email) result.user = email.split('@')[0]
+  }
+
+  res.json(result)
 })
 
 export default router

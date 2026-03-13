@@ -11,6 +11,9 @@ chat:
   max_turns: 20
   idle_timeout_minutes: 30
 
+## Uncomment if running behind an auth proxy (e.g. groundsquirrel):
+# auth_proxy: true
+
 ## Uncomment to accept connections from other agents:
 # agents:
 #   - name: other-agent

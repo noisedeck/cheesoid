@@ -76,13 +76,26 @@ if (isMobile()) {
   sidebarOpen.classList.remove('hidden')
 }
 
-// Boot
-if (myName) {
-  enterRoom()
-} else {
-  namePrompt.classList.remove('hidden')
-  nameInput.focus()
-}
+// Boot — check if instance uses auth proxy, skip name prompt if so
+;(async () => {
+  let presenceData = null
+  try {
+    const res = await fetch('/api/presence')
+    presenceData = await res.json()
+  } catch {}
+
+  if (presenceData?.auth_proxy && presenceData.user) {
+    myName = presenceData.user
+    localStorage.setItem('cheesoid-name', myName)
+  }
+
+  if (myName) {
+    enterRoom(presenceData)
+  } else {
+    namePrompt.classList.remove('hidden')
+    nameInput.focus()
+  }
+})()
 
 nameBtn.addEventListener('click', submitName)
 nameInput.addEventListener('keydown', (e) => {
@@ -97,14 +110,13 @@ function submitName() {
   enterRoom()
 }
 
-async function enterRoom() {
+async function enterRoom(presenceData) {
   namePrompt.classList.add('hidden')
   chat.classList.remove('hidden')
 
-  // Load presence
+  // Load presence (use pre-fetched data if available)
   try {
-    const res = await fetch('/api/presence')
-    const data = await res.json()
+    const data = presenceData || await fetch('/api/presence').then(r => r.json())
     personaLabel = data.persona || 'Cheesoid'
     personaName.textContent = personaLabel
     document.title = personaLabel
