@@ -1,6 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+export function currentTimestamp() {
+  const now = new Date()
+  return `Current date: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Current time: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}.`
+}
+
 export async function assemblePrompt(personaDir, config) {
   const sections = []
 
@@ -9,9 +14,8 @@ export async function assemblePrompt(personaDir, config) {
     sections.push(`Your name is ${config.display_name}.`)
   }
 
-  // 2. Current date/time
-  const now = new Date()
-  sections.push(`Current date: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Current time: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}.`)
+  // 2. Current date/time (placeholder — replaced fresh before each agent call)
+  sections.push('{{CURRENT_TIMESTAMP}}')
 
   // 3. SOUL.md — persistent presence definition
   const soul = await readSafe(join(personaDir, 'SOUL.md'))

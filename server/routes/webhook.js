@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { runAgent } from '../lib/agent.js'
+import { currentTimestamp } from '../lib/prompt-assembler.js'
 
 const router = Router()
 
@@ -56,7 +57,8 @@ Be brief. This is background processing, not a conversation.`
     }
 
     const noop = () => {}
-    await runAgent(room.systemPrompt, messages, room.tools, config, noop)
+    const prompt = room.systemPrompt.replace('{{CURRENT_TIMESTAMP}}', currentTimestamp())
+    await runAgent(prompt, messages, room.tools, config, noop)
 
     console.log(`[${room.persona.config.name}] Webhook processed from ${source}`)
   } catch (err) {

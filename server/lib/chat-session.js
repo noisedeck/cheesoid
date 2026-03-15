@@ -1,4 +1,4 @@
-import { assemblePrompt } from './prompt-assembler.js'
+import { assemblePrompt, currentTimestamp } from './prompt-assembler.js'
 import { Memory } from './memory.js'
 import { State } from './state.js'
 import { loadTools } from './tools.js'
@@ -247,7 +247,8 @@ export class Room {
         }
       }
 
-      const result = await runAgent(this.systemPrompt, this.messages, this.tools, config, onEvent)
+      const prompt = this.systemPrompt.replace('{{CURRENT_TIMESTAMP}}', currentTimestamp())
+      const result = await runAgent(prompt, this.messages, this.tools, config, onEvent)
       this.messages = result.messages
 
       // Parse backchannel and thought tags from response
@@ -329,7 +330,8 @@ export class Room {
         }
       }
 
-      await runAgent(this.systemPrompt, idleMessages, this.tools, config, onEvent)
+      const prompt = this.systemPrompt.replace('{{CURRENT_TIMESTAMP}}', currentTimestamp())
+      await runAgent(prompt, idleMessages, this.tools, config, onEvent)
       if (idleText) {
         this.recordHistory({ type: 'idle_thought', text: idleText })
       }
