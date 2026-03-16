@@ -247,6 +247,26 @@ main {
 
 .error { color: var(--hf-red); }
 
+/* Agent messages (visiting agents in the room) */
+.agent-message .avatar {
+  border: 2px solid var(--hf-accent);
+}
+
+/* Backchannel messages (agent-to-agent coordination visible to operators) */
+.agent-backchannel {
+  border-left-color: var(--hf-accent);
+}
+
+.agent-backchannel::before {
+  content: none;
+}
+
+.backchannel-label {
+  color: var(--hf-accent);
+  font-style: normal;
+  font-weight: var(--hf-weight-semibold);
+}
+
 /* Mobile / responsive */
 @media (max-width: 768px) {
   body, #app, #chat {

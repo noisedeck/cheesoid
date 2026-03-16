@@ -24,6 +24,11 @@ let personaLabel = 'Cheesoid'
 let sending = false
 let reconnectTimer = null
 
+// Configure marked for chat rendering
+if (typeof marked !== 'undefined') {
+  marked.setOptions({ breaks: true, gfm: true })
+}
+
 const AVATAR_COLORS = [
   'oklch(65% 0.15 0)',
   'oklch(65% 0.15 30)',
@@ -179,13 +184,12 @@ function handleEvent(e) {
           lastSender = null
         }
       }
-      scrollToBottom()
+      forceScrollToBottom()
       break
 
     case 'user_message':
       // Someone sent a message (could be us or someone else)
-      appendMessage('user', event.text, event.name)
-      // Prepare for assistant response (but not for visiting agent messages)
+      appendMessage('user', event.text, event.name, null, event.fromAgent)
       if (!event.fromAgent) {
         assistantEl = appendMessage('assistant', '')
         assistantBuffer = ''
@@ -264,6 +268,15 @@ function handleEvent(e) {
       idleBuffer = ''
       refreshPresence()
       break
+
+    case 'backchannel': {
+      const el = document.createElement('div')
+      el.className = 'idle-thought agent-backchannel'
+      el.innerHTML = `<span class="backchannel-label">[backchannel/${event.name}]</span> ${renderMarkdown(event.text)}`
+      messages.appendChild(el)
+      lastSender = null
+      break
+    }
 
     case 'presence':
       updateParticipants(event.participants)
@@ -409,9 +422,10 @@ function formatTime(timestamp) {
   return `${h12}:${m} ${ampm}`
 }
 
-function appendMessage(role, text, name, timestamp) {
+function appendMessage(role, text, name, timestamp, fromAgent = false) {
   const el = document.createElement('div')
   el.className = 'message'
+  if (fromAgent) el.classList.add('agent-message')
 
   const senderKey = role === 'user' ? (name || 'anon') : '__assistant__'
   const isFirst = lastSender !== senderKey
@@ -481,10 +495,22 @@ function appendTool(parentEl, text, isError = false) {
 }
 
 function scrollToBottom() {
+  const threshold = 150
+  const isNearBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < threshold
+  if (isNearBottom) {
+    messages.scrollTop = messages.scrollHeight
+  }
+}
+
+function forceScrollToBottom() {
   messages.scrollTop = messages.scrollHeight
 }
 
 function renderMarkdown(text) {
+  if (typeof marked !== 'undefined') {
+    return marked.parse(text)
+  }
+  // Fallback if marked not loaded
   return text
     .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')

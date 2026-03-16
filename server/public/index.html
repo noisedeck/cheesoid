@@ -1,10 +1,58 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="terminal">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cheesoid</title>
+  <link rel="preload" href="https://fonts.noisefactor.io/fonts/inter/Inter-Blank.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="https://fonts.noisefactor.io/fonts/nunito/Nunito-Blank.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="https://fonts.noisefactor.io/fonts/noto-sans-mono/NotoSansMono-Blank.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    @font-face {
+        font-family: 'Inter Blank';
+        src: url('https://fonts.noisefactor.io/fonts/inter/Inter-Blank.woff2') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+    }
+    @font-face {
+        font-family: Inter;
+        src: url('https://fonts.noisefactor.io/fonts/inter/Inter-Regular.woff2') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+    }
+    @font-face {
+        font-family: 'Nunito Blank';
+        src: url('https://fonts.noisefactor.io/fonts/nunito/Nunito-Blank.woff2') format('woff2');
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: block;
+    }
+    @font-face {
+        font-family: Nunito;
+        src: url('https://fonts.noisefactor.io/fonts/nunito/Nunito[wght].woff2') format('woff2');
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+    }
+    @font-face {
+        font-family: 'Noto Sans Mono Blank';
+        src: url('https://fonts.noisefactor.io/fonts/noto-sans-mono/NotoSansMono-Blank.woff2') format('woff2');
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: block;
+    }
+    @font-face {
+        font-family: 'Noto Sans Mono';
+        src: url('https://fonts.noisefactor.io/fonts/noto-sans-mono/NotoSansMono[wdth,wght].woff2') format('woff2');
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: swap;
+    }
+  </style>
   <link rel="stylesheet" href="https://handfish.noisefactor.io/0.9.0/styles/index.css">
+  <link rel="stylesheet" href="https://handfish.noisefactor.io/0.9.0/styles/themes/terminal.css">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -39,13 +87,14 @@
         <main>
           <div id="messages" class="hf-scrollbar"></div>
           <div id="input-area" class="hf-flex hf-gap-2 hf-border-top">
-            <textarea id="input" class="hf-textarea" placeholder="Say something..." rows="1"></textarea>
+            <textarea id="input" class="hf-textarea hf-scrollbar" placeholder="Say something..." rows="1"></textarea>
             <button id="send-btn" class="hf-btn hf-btn-primary">Send</button>
           </div>
         </main>
       </div>
     </div>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script type="module" src="/js/chat.js"></script>
 </body>
 </html>
