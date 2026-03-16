@@ -4,6 +4,15 @@ import { State } from '../lib/state.js'
 const router = Router()
 
 router.get('/up', (req, res) => {
+  const checks = req.app.locals.startupCheckResults
+  if (checks && !checks.ok) {
+    return res.status(503).json({
+      status: 'degraded',
+      service: 'cheesoid',
+      version: process.env.npm_package_version || '0.1.0',
+      missing: checks.missing
+    })
+  }
   res.json({
     status: 'ok',
     service: 'cheesoid',

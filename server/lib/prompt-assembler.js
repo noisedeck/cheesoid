@@ -1,6 +1,13 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+const SOURCE_TRUST_HIERARCHY = `## Source Trust Hierarchy
+When sources conflict, trust in this order:
+1. Live data (API responses, database queries, health checks)
+2. Agent memory (your own verified observations)
+3. Repository documentation (may be stale)
+If you find a conflict, surface it explicitly rather than silently picking one source.`
+
 export function currentTimestamp() {
   const now = new Date()
   return `Current date: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Current time: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}.`
@@ -86,6 +93,8 @@ export async function assemblePrompt(personaDir, config) {
     ].join('\n')
     sections.push(agentSection)
   }
+
+  sections.push(SOURCE_TRUST_HIERARCHY)
 
   // 4. Memory files — always last (freshest context)
   const memoryDir = config.memory?.dir || 'memory/'

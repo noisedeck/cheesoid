@@ -76,4 +76,24 @@ describe('assemblePrompt', () => {
     assert.ok(result.includes('Core memory.'))
     assert.ok(result.includes('Topic notes.'))
   })
+
+  it('includes source trust hierarchy before memory', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'System.',
+      'memory/MEMORY.md': 'Memory content.',
+    })
+
+    const result = await assemblePrompt(dir, {
+      chat: { prompt: 'prompts/system.md' },
+      memory: { dir: 'memory/', auto_read: ['MEMORY.md'] },
+    })
+
+    assert.ok(result.includes('Source Trust Hierarchy'))
+    assert.ok(result.includes('Live data'))
+
+    const trustIdx = result.indexOf('Source Trust Hierarchy')
+    const memoryIdx = result.indexOf('Memory content.')
+    assert.ok(trustIdx < memoryIdx)
+  })
 })

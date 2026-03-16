@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url'
 import { join } from 'node:path'
+import { buildSharedWorkspaceTools } from './shared-workspace.js'
 
 /**
  * Build the full tool set for a persona: memory tools + persona-specific tools.
@@ -7,6 +8,7 @@ import { join } from 'node:path'
  */
 export async function loadTools(personaDir, config, memory, state, room) {
   const memoryTools = buildMemoryTools(memory, state)
+  const sharedTools = buildSharedWorkspaceTools(process.env.SHARED_WORKSPACE_PATH || '/shared')
   const roomTools = buildRoomTools(room, config)
   let personaTools = { definitions: [], execute: async () => ({ error: 'unknown tool' }) }
 
@@ -20,11 +22,14 @@ export async function loadTools(personaDir, config, memory, state, room) {
     }
   }
 
-  const allDefinitions = [...memoryTools.definitions, ...roomTools.definitions, ...personaTools.definitions]
+  const allDefinitions = [...memoryTools.definitions, ...sharedTools.definitions, ...roomTools.definitions, ...personaTools.definitions]
 
   async function execute(name, input) {
     if (memoryTools.handles(name)) {
       return memoryTools.execute(name, input)
+    }
+    if (sharedTools.handles(name)) {
+      return sharedTools.execute(name, input)
     }
     if (roomTools.handles(name)) {
       return roomTools.execute(name, input)

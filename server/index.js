@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadPersona } from './lib/persona.js'
 import { createAuthMiddleware } from './lib/auth.js'
+import { runStartupChecks } from './lib/startup-checks.js'
 import { Room } from './lib/chat-session.js'
 import chatRouter from './routes/chat.js'
 import healthRouter from './routes/health.js'
@@ -25,6 +26,9 @@ app.locals.persona = persona
 app.locals.room = new Room(persona)
 await app.locals.room.initialize()
 app.locals.authMiddleware = createAuthMiddleware(persona.config.agents || null)
+
+const requiredPaths = persona.config.startup_checks?.required_paths || []
+app.locals.startupCheckResults = runStartupChecks(requiredPaths)
 
 // Routes
 app.use(chatRouter)
