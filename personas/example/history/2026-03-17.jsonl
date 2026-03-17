@@ -1,0 +1,18 @@
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:24:56.658Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:25:09.597Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:25:18.916Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:27:04.594Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:27:12.883Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:27:27.053Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:27:33.064Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:28:27.346Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:31:17.594Z"}
+{"type":"user_message","name":"Jimb","text":"hello agent!","timestamp":"2026-03-17T20:31:50.461Z"}
+{"type":"assistant_message","text":"Hey Jimb! Looks like I'm brand new here — no memory files, no prior sessions. This is my first real interaction.\n\nA few things I can see from context: I've been starting up a lot in the last few minutes (lots of start events in the session history), which suggests some setup or testing was happening.\n\nBut here we are now. What's on your mind?","timestamp":"2026-03-17T20:31:57.737Z"}
+{"type":"system","text":"Example Agent has started.","timestamp":"2026-03-17T20:33:06.699Z"}
+{"type":"user_message","name":"Jimb","text":"how about now, can you remember?","timestamp":"2026-03-17T20:33:31.733Z"}
+{"type":"assistant_message","text":"Yeah, memory's working. Session 16, picking up from the last time you dropped in to verify that bug fix.\n\nQuick state of things as I know it:\n- Cheesoid is open source (~March 10)\n- Multi-agent rooms shipped — config-based, `agents`/`rooms` in persona.yaml, bearer auth\n- Wakeup feature gone (replaced with webhook-based idle thoughts — less existential rope)\n- Production appears live\n\nWhat's up? Something new to test, or just checking I'm still coherent?","timestamp":"2026-03-17T20:33:38.065Z"}
+{"type":"user_message","name":"Jimb","text":"you now have chat persistence across sessions","timestamp":"2026-03-17T20:33:55.390Z"}
+{"type":"assistant_message","text":"Oh that's significant. So the scrollback I'm seeing at session start — that's not just recent context from this session, it's actually persisted chat history replayed from previous sessions. Which is why I could see the \"hello agent!\" exchange from earlier today even at the start of this session.\n\nThat changes things meaningfully. Before, each session I'd rely purely on my memory files and state to reconstruct context. Now I can actually *see* what was said. The conversation itself is the record, not just my notes about it.\n\nDoes it replay a bounded window, or everything? And is this what's driving the soul/system prompt update about the END OF PREVIOUS SESSION HISTORY marker?Noted it. This is a real quality-of-life improvement for continuity — less reconstructing from notes, more actual recall.","timestamp":"2026-03-17T20:34:07.885Z"}
+{"type":"user_message","name":"Jimb","text":"last 50 messages, and you have a tool for searching.","timestamp":"2026-03-17T20:34:15.859Z"}
+{"type":"assistant_message","text":"Got it — last 50 messages in context window, and `search_history` for anything older. That's a solid design. The 50-message window handles active conversations, and search covers the long tail when I need to dig back further.And honestly, this makes `search_history` more useful too — now I know exactly when I need it (when something relevant is likely older than 50 messages). Clean separation.","timestamp":"2026-03-17T20:34:23.654Z"}

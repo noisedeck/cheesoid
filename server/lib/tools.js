@@ -53,6 +53,18 @@ function buildRoomTools(room, config) {
         required: ['text'],
       },
     },
+    {
+      name: 'search_history',
+      description: 'Search your full chat history across all sessions. Returns matching entries with timestamps, newest first. Use this to recall past conversations, find things people said, or review your own previous thoughts.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Text to search for (case-insensitive)' },
+          limit: { type: 'number', description: 'Max results to return (default 50)' },
+        },
+        required: ['query'],
+      },
+    },
   ]
 
   const toolNames = new Set(definitions.map(d => d.name))
@@ -65,6 +77,16 @@ function buildRoomTools(room, config) {
         room.recordHistory({ type: 'assistant_message', text: input.text })
         room.messages.push({ role: 'assistant', content: input.text })
         return { output: 'Message sent to chat room.' }
+      }
+      case 'search_history': {
+        if (!room.chatLog) return { output: 'Chat log not available', is_error: true }
+        const results = await room.chatLog.search(input.query, { limit: input.limit })
+        if (results.length === 0) return { output: 'No matching history entries found.' }
+        const formatted = results.map(e => {
+          const prefix = e.name ? `[${e.timestamp}] ${e.name}` : `[${e.timestamp}]`
+          return `${prefix} (${e.type}): ${e.text}`
+        }).join('\n')
+        return { output: formatted }
       }
       default:
         return { output: `Unknown room tool: ${name}`, is_error: true }

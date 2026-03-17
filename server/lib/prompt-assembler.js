@@ -96,6 +96,16 @@ export async function assemblePrompt(personaDir, config) {
 
   sections.push(SOURCE_TRUST_HIERARCHY)
 
+  // Chat history awareness
+  sections.push(`## Chat History
+Your conversation context includes recent messages replayed from previous sessions. Everything before the "END OF PREVIOUS SESSION HISTORY" marker is from before this session — use it to maintain continuity.
+
+For older conversations beyond your context window, use the \`search_history\` tool. It searches your full chat log across all sessions by keyword and returns timestamped results, newest first. Use it when:
+- Someone references a past conversation and you don't see it in context
+- You want to recall what was discussed on a particular topic
+- You're reflecting during idle time and want to review recent threads
+- You need to verify something that was said previously`)
+
   // 4. Memory files — always last (freshest context)
   const memoryDir = config.memory?.dir || 'memory/'
   const autoRead = config.memory?.auto_read || []

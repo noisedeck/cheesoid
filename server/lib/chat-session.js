@@ -1,12 +1,13 @@
 import { assemblePrompt, currentTimestamp } from './prompt-assembler.js'
 import { Memory } from './memory.js'
 import { State } from './state.js'
+import { ChatLog } from './chat-log.js'
 import { loadTools } from './tools.js'
 import { runAgent } from './agent.js'
 import { RoomClient } from './room-client.js'
 
-const IDLE_THOUGHT_INTERVAL = 5 * 60 * 1000 // 5 minutes, doubles each time
-const MAX_IDLE_INTERVAL = 8 * 60 * 60 * 1000 // 8 hours cap
+const IDLE_THOUGHT_INTERVAL = 15 * 60 * 1000 // 15 minutes, doubles each time
+const MAX_IDLE_INTERVAL = 24 * 60 * 60 * 1000 // 24 hours cap
 const MAX_HISTORY = 50
 const HEARTBEAT_INTERVAL = 30 * 1000 // 30 seconds — keeps SSE alive through proxies
 // Join/leave events are broadcast to SSE clients for UI presence updates
@@ -36,6 +37,7 @@ export class Room {
     this.tools = null
     this.memory = null
     this.state = null
+    this.chatLog = null
     this.busy = false
     this.lastActivity = Date.now()
     this.idleTimer = null
@@ -56,9 +58,29 @@ export class Room {
     const { dir, config } = this.persona
     this.memory = new Memory(dir, config.memory?.dir || 'memory/')
     this.state = new State(dir)
+    this.chatLog = new ChatLog(dir)
     await this.state.load()
     this.systemPrompt = await assemblePrompt(dir, config)
     this.tools = await loadTools(dir, config, this.memory, this.state, this)
+
+    // Replay recent history into agent context
+    const recent = await this.chatLog.recent(MAX_HISTORY)
+    if (recent.length > 0) {
+      for (const entry of recent) {
+        const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '??:??'
+        if (entry.type === 'assistant_message' || entry.type === 'idle_thought') {
+          this.messages.push({ role: 'assistant', content: entry.text })
+        } else if (entry.type === 'user_message') {
+          const prefix = entry.name ? `[${ts}] ${entry.name}` : `[${ts}]`
+          this.messages.push({ role: 'user', content: `${prefix}: ${entry.text}` })
+        } else if (entry.type === 'system') {
+          this.messages.push({ role: 'user', content: `[${ts}] * ${entry.text}` })
+        }
+      }
+      this.history = recent // also restore scrollback
+      this.messages.push({ role: 'user', content: '--- END OF PREVIOUS SESSION HISTORY ---' })
+      console.log(`[${config.name}] Replayed ${recent.length} history entries`)
+    }
 
     // Announce startup
     const startupMsg = `${config.display_name} has started.`
@@ -114,6 +136,11 @@ export class Room {
     this.history.push({ ...entry, timestamp: Date.now() })
     if (this.history.length > MAX_HISTORY) {
       this.history.shift()
+    }
+    if (this.chatLog) {
+      this.chatLog.append(entry).catch(err => {
+        console.error(`[${this.persona.config.name}] Chat log write error:`, err.message)
+      })
     }
   }
 
@@ -327,7 +354,10 @@ export class Room {
     console.log(`[${this.persona.config.name}] Idle thought triggered, ${this.clients.size} clients connected`)
 
     try {
-      const idleMessages = [{ role: 'user', content: IDLE_THOUGHT_PROMPT }]
+      const idleMessages = [
+        ...this.messages,
+        { role: 'user', content: IDLE_THOUGHT_PROMPT },
+      ]
 
       const config = {
         model: this.persona.config.model,
