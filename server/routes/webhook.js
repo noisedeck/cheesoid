@@ -1,12 +1,10 @@
 import { Router } from 'express'
-import { runAgent } from '../lib/agent.js'
-import { currentTimestamp } from '../lib/prompt-assembler.js'
 
 const router = Router()
 
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || ''
 
-// Generic webhook — the agent receives arbitrary JSON and decides what to do
+// Generic webhook — validated then injected into the room as a message
 router.post('/webhook', async (req, res) => {
   // Shared secret gate — reject if secret not found anywhere in the request
   if (WEBHOOK_SECRET) {
@@ -20,21 +18,10 @@ router.post('/webhook', async (req, res) => {
   const payload = JSON.stringify(req.body, null, 2)
   const source = req.headers['x-webhook-source'] || req.query.source || 'unknown'
 
-  if (room.busy) {
-    return res.status(503).json({ status: 'busy', message: 'Agent is currently processing' })
-  }
-
+  // Respond immediately — processing happens via the room
   res.json({ status: 'received' })
 
-  // Process autonomously — not in the chat room
-  room.busy = true
-  try {
-    if (!room.systemPrompt) await room.initialize()
-
-    const webhookPrompt = `You have received a webhook. Process it autonomously — decide what to do based on your memory, state, and persona.
-
-Source: ${source}
-Timestamp: ${new Date().toISOString()}
+  const webhookMessage = `[webhook from ${source}] Process this autonomously — decide what to do based on your memory, state, and persona.
 
 Payload:
 \`\`\`json
@@ -49,23 +36,10 @@ Decide what action to take. You can:
 
 Be brief. This is background processing, not a conversation.`
 
-    const messages = [{ role: 'user', content: webhookPrompt }]
-    const config = {
-      model: room.persona.config.model,
-      maxTurns: req.body.max_turns || 10,
-      thinkingBudget: room.persona.config.chat?.thinking_budget || null,
-    }
-
-    const noop = () => {}
-    const prompt = room.systemPrompt.replace('{{CURRENT_TIMESTAMP}}', currentTimestamp())
-    await runAgent(prompt, messages, room.tools, config, noop)
-
-    console.log(`[${room.persona.config.name}] Webhook processed from ${source}`)
-  } catch (err) {
+  // Route through the room so it's part of the contiguous conversation
+  room.sendMessage('webhook', webhookMessage).catch(err => {
     console.error(`[${room.persona.config.name}] Webhook error:`, err.message)
-  } finally {
-    room.busy = false
-  }
+  })
 })
 
 export default router
