@@ -7,7 +7,10 @@ function isOpusModel(model) {
 }
 
 function isUnavailableError(err) {
-  return err.status === 529 || err.status === 503 || err.status === 404
+  if (err.status === 529 || err.status === 503 || err.status === 404) return true
+  // Overloaded errors can also arrive as SSE events with type 'overloaded_error'
+  if (err.errorType === 'overloaded_error' || err.errorType === 'api_error') return true
+  return false
 }
 
 async function streamOnce(client, params, onEvent) {
@@ -50,6 +53,11 @@ async function streamOnce(client, params, onEvent) {
     } else if (event.type === 'message_start' && event.message?.usage) {
       usage.input_tokens += event.message.usage.input_tokens || 0
       usage.output_tokens += event.message.usage.output_tokens || 0
+    } else if (event.type === 'error') {
+      const err = new Error(event.error?.message || 'Stream error')
+      err.status = event.error?.type === 'overloaded_error' ? 529 : 500
+      err.errorType = event.error?.type
+      throw err
     }
   }
 
