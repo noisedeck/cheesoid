@@ -120,6 +120,9 @@ Every persona automatically gets these built-in tools (no need to define them):
 
 - `read_memory` / `write_memory` / `append_memory` / `list_memory` — persistent memory
 - `get_state` / `update_state` — persistent cognitive state (mood, energy, focus, open threads)
+- `search_history` — search full chat history across all sessions by keyword
+- `send_chat_message` — send a message to the chat room
+- `list_shared` / `read_shared` / `write_shared` — shared workspace file access (when `/shared` is mounted)
 
 ### Configuring tool access
 
@@ -220,6 +223,7 @@ docker run -p 3000:3000 \
 - **Scrollback** — reconnecting users see the last 50 messages
 - **Idle thoughts** — after inactivity, the agent reflects on its own
 - **Collapsible sidebar** — shows persona status and connected participants
+- **Chat history search** — search past conversations across all sessions
 - **Custom tools** — give your persona abilities beyond conversation
 
 ## Multi-Agent Rooms
@@ -259,6 +263,29 @@ Agents appear in the participant list like regular users. Their messages are vis
 - Each cheesoid instance remains single-room — multi-room happens at the agent level
 - Secrets reference environment variables: `${VAR_NAME}` in persona.yaml
 
+## Shared Workspace
+
+When multiple agents run in separate containers, they can share files through a common Docker volume mounted at `/shared/`. This gives agents a lightweight way to exchange drafts, hand off analysis, or collaborate on documents without git or external APIs.
+
+All agents see the same files — access is flat, with subdirectories by convention (e.g. `/shared/brad/`, `/shared/margo/`). There's no locking or versioning; agents coordinate via chat.
+
+Three built-in tools are available to every persona automatically:
+
+- `list_shared(path?)` — list files and directories
+- `read_shared(path)` — read a file
+- `write_shared(path, content)` — write a file (creates parent directories)
+
+### Setup
+
+Mount a shared Docker volume into each agent container:
+
+```bash
+docker volume create cheesoid-shared
+docker run -v cheesoid-shared:/shared ...
+```
+
+Or override the mount path with the `SHARED_WORKSPACE_PATH` environment variable.
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -266,6 +293,7 @@ Agents appear in the participant list like regular users. Their messages are vis
 | `ANTHROPIC_API_KEY` | (required) | Your Anthropic API key |
 | `PERSONA` | `example` | Persona directory name under `personas/` |
 | `PORT` | `3000` | HTTP port |
+| `SHARED_WORKSPACE_PATH` | `/shared` | Mount path for shared workspace volume |
 
 ## Project Structure
 
@@ -279,7 +307,9 @@ server/
     state.js            # Persistent state
     persona.js          # Persona config loader
     prompt-assembler.js # System prompt construction
-    tools.js            # Tool loading and built-in memory tools
+    tools.js            # Tool loading and built-in tools
+    shared-workspace.js # Shared workspace tools
+    chat-log.js         # Chat history persistence and search
     auth.js             # Auth middleware
   routes/
     chat.js             # SSE stream, send, reset
