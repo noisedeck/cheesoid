@@ -63,7 +63,7 @@ jobs:
             docker rm brad 2>/dev/null || true
             docker run -d \
               --name brad \
-              --network kamal \
+              --network platform \
               --entrypoint bash \
               --env-file /home/ops/brad/.env \
               -v /home/ops/brad/persona:/app/personas/brad \
@@ -82,7 +82,7 @@ jobs:
             docker rm ask-agent 2>/dev/null || true
             docker run -d \
               --name ask-agent \
-              --network kamal \
+              --network platform \
               --env-file /home/ops/ask-agent/.env \
               -v /home/ops/ask-agent/persona:/app/personas/ask \
               -v cheesoid-shared:/shared \
@@ -98,7 +98,7 @@ jobs:
             docker rm ehsre 2>/dev/null || true
             docker run -d \
               --name ehsre \
-              --network kamal \
+              --network platform \
               --entrypoint bash \
               --env-file /home/ops/ehsre/.env \
               -v /home/ops/ehsre/persona:/app/personas/ehsre \
@@ -121,7 +121,7 @@ jobs:
             docker rm yipyip-ehsre 2>/dev/null || true
             docker run -d \
               --name yipyip-ehsre \
-              --network kamal \
+              --network platform \
               --entrypoint bash \
               --env-file /home/ops/yipyip-ehsre/.env \
               -v /home/ops/yipyip-ehsre/persona:/app/personas/yipyip-ehsre \
@@ -144,7 +144,7 @@ jobs:
             docker rm margo 2>/dev/null || true
             docker run -d \
               --name margo \
-              --network kamal \
+              --network platform \
               --entrypoint bash \
               --env-file /home/ops/margo/.env \
               -v /home/ops/margo/persona:/app/personas/margo \
