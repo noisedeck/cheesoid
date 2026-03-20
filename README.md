@@ -4,7 +4,26 @@ A framework for running persistent AI personas with memory, state, and a multi-u
 
 You create a directory with a few files that define who your agent is. Cheesoid handles the rest: web UI, memory persistence, idle thoughts, multi-user chat, scrollback.
 
-*DO NOT* run this in any kind of public setting.
+## Security
+
+**Do not expose Cheesoid directly to the internet.**
+
+Cheesoid agents run with tool access — shell commands, SSH, API calls, whatever you give them. There is no built-in authentication on the web UI. Anyone who can reach the URL can interact with your agent. In a misconfigured or publicly exposed instance, that means anyone who reaches it gets an agent with a shell running as your server process, with access to every mounted credential and secret.
+
+Run it behind an authenticating reverse proxy. Caddy with basic auth is the simplest path:
+
+```
+cheesoid.example.com {
+    basicauth {
+        alice $2a$14$...
+    }
+    reverse_proxy localhost:3000
+}
+```
+
+Other options: OAuth2 Proxy, Tailscale, or any reverse proxy with auth middleware. The point is that Cheesoid itself has no opinion about who's talking to it — that has to come from the layer in front.
+
+This isn't a warning about edge cases. It's the correct deployment model for a tool this sharp.
 
 ## Quick Start
 
@@ -16,6 +35,8 @@ ANTHROPIC_API_KEY=sk-... npm run dev
 ```
 
 Open `http://localhost:3000`. Enter a name, start chatting.
+
+The `example` persona is included. It's a minimal agent with no tools — useful for verifying the setup works. Build your own persona from there.
 
 ## Creating a Persona
 
@@ -174,8 +195,6 @@ docker run -p 3000:3000 \
 ```
 
 The agent can then use `bash` to run `ssh`, `docker`, `curl`, or anything else available in the container. Scope access carefully — the agent will use whatever you give it.
-
-**Important:** Cheesoid has no built-in authentication. We run it behind an authenticating reverse proxy (e.g. Caddy with basic auth, OAuth2 Proxy, Tailscale). Do not expose it directly to the internet.
 
 ## Running
 
