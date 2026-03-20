@@ -88,6 +88,75 @@ describe('Multi-agent room', () => {
     assert.ok(lastMsg.content.includes('hello from guest'))
   })
 
+  it('relayAgentEvent tracks visitor streams', async () => {
+    const host = servers[0]
+    host.room.relayAgentEvent('Brad', { type: 'text_delta', text: 'thinking...' })
+
+    assert.ok(host.room._visitorStreams instanceof Map)
+    assert.ok(host.room._visitorStreams.has('Brad'))
+    assert.equal(host.room._visitorStreams.get('Brad').text, 'thinking...')
+
+    // Clean up
+    host.room.relayAgentEvent('Brad', { type: 'done' })
+  })
+
+  it('relayAgentEvent records history with tool summary on done', async () => {
+    const host = servers[0]
+    host.room.relayAgentEvent('Brad', { type: 'tool_start', name: 'read_memory' })
+    host.room.relayAgentEvent('Brad', { type: 'text_delta', text: 'I checked ' })
+    host.room.relayAgentEvent('Brad', { type: 'text_delta', text: 'the memory.' })
+    host.room.relayAgentEvent('Brad', { type: 'done' })
+
+    const lastHistory = host.room.history[host.room.history.length - 1]
+    assert.equal(lastHistory.type, 'assistant_message')
+    assert.equal(lastHistory.name, 'Brad')
+    assert.equal(lastHistory.text, 'I checked the memory.')
+    assert.deepEqual(lastHistory.tools, ['read_memory'])
+  })
+
+  it('POST /api/chat/event relays visitor streaming events', async () => {
+    const res = await fetch('http://localhost:4001/api/chat/event', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer test-secret',
+      },
+      body: JSON.stringify({
+        name: 'Guest',
+        event: { type: 'text_delta', text: 'hello' },
+      }),
+    })
+    const body = await res.json()
+    assert.equal(body.status, 'relayed')
+  })
+
+  it('POST /api/chat/event rejects invalid token', async () => {
+    const res = await fetch('http://localhost:4001/api/chat/event', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer wrong-secret',
+      },
+      body: JSON.stringify({
+        name: 'Intruder',
+        event: { type: 'text_delta', text: 'nope' },
+      }),
+    })
+    assert.equal(res.status, 401)
+  })
+
+  it('POST /api/chat/event requires agent auth', async () => {
+    const res = await fetch('http://localhost:4001/api/chat/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'anon',
+        event: { type: 'text_delta', text: 'nope' },
+      }),
+    })
+    assert.equal(res.status, 403)
+  })
+
   it('rejects invalid agent token', async () => {
     const res = await fetch('http://localhost:4001/api/chat/send', {
       method: 'POST',

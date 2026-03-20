@@ -10,6 +10,7 @@ const IDLE_THOUGHT_INTERVAL = 30 * 60 * 1000 // 30 minutes, doubles each time
 const MAX_IDLE_INTERVAL = 7 * 24 * 60 * 60 * 1000 // 7 days cap
 const MAX_HISTORY = 50
 const HEARTBEAT_INTERVAL = 30 * 1000 // 30 seconds — keeps SSE alive through proxies
+const VISITOR_STREAM_TIMEOUT = 60 * 1000 // 60 seconds — cleanup stale visitor streams
 // Join/leave events are broadcast to SSE clients for UI presence updates
 // but never injected into agent context (this.messages) — the agent has
 // the participant list via presence events and doesn't need the churn.
@@ -49,6 +50,7 @@ export class Room {
     this._idleInterval = IDLE_THOUGHT_INTERVAL // backs off with consecutive idle thoughts
     this._heartbeatTimer = null
     this._destroyed = false
+    this._visitorStreams = new Map() // agentName → { text, tools, timer }
   }
 
   async initialize() {
@@ -82,7 +84,7 @@ export class Room {
     }
 
     // Announce startup
-    const startupMsg = `${config.display_name} has started.`
+    const startupMsg = `Welcome to ${config.display_name}'s office.`
     this.messages.push({ role: 'user', content: `[${this._timestamp()}] * ${startupMsg}` })
     this.recordHistory({ type: 'system', text: startupMsg })
     this.broadcast({ type: 'system', text: startupMsg })
@@ -177,6 +179,44 @@ export class Room {
     const taggedMessage = `[${this._timestamp()}][backchannel/${name}]: ${text}`
     this.messages.push({ role: 'user', content: taggedMessage })
     // No broadcast, no history — agents only
+  }
+
+  relayAgentEvent(name, event) {
+    // Relay visiting agent streaming events to SSE clients.
+    // Does NOT interact with the agent loop, this.messages, or the busy flag.
+    // Uses agentName key to avoid clobbering event.name (which is the tool name
+    // on tool_start/tool_result events).
+    this.broadcast({ ...event, agentName: name, visiting: true })
+
+    // Accumulate visitor stream state for history recording
+    if (!this._visitorStreams.has(name)) {
+      this._visitorStreams.set(name, { text: '', tools: [], timer: null })
+    }
+    const stream = this._visitorStreams.get(name)
+
+    // Reset stale-stream timeout on every event
+    if (stream.timer) clearTimeout(stream.timer)
+    stream.timer = setTimeout(() => {
+      this._visitorStreams.delete(name)
+    }, VISITOR_STREAM_TIMEOUT)
+
+    if (event.type === 'text_delta') {
+      stream.text += event.text
+    } else if (event.type === 'tool_start') {
+      stream.tools.push(event.name)
+    } else if (event.type === 'done') {
+      // Record to persistent history with tool summary
+      if (stream.text) {
+        this.recordHistory({
+          type: 'assistant_message',
+          name,
+          text: stream.text,
+          tools: stream.tools.length > 0 ? stream.tools : undefined,
+        })
+      }
+      clearTimeout(stream.timer)
+      this._visitorStreams.delete(name)
+    }
   }
 
   _parseResponseTags(text) {
@@ -284,6 +324,12 @@ export class Room {
         }
         if (this._pendingRoom === 'home') {
           this.broadcast(event)
+        } else if (['text_delta', 'tool_start', 'tool_result', 'done'].includes(event.type)) {
+          // Forward streaming events to remote office so visitors can see our work.
+          // thinking_delta is intentionally excluded — thinking is internal.
+          // sendEvent resolves on error (never rejects), so no .catch() needed.
+          const client = this.roomClients.get(this._pendingRoom)
+          if (client) client.sendEvent(event)
         }
       }
 

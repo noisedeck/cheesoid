@@ -1,5 +1,6 @@
 name: ehsre
 display_name: "Emergency Holographic SRE"
+office_url: https://ehsre.noisefactor.io
 model: claude-sonnet-4-6
 max_budget_usd: 10
 

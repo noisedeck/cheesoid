@@ -45,6 +45,20 @@ router.post('/api/chat/send', async (req, res) => {
   }
 })
 
+// Relay streaming events from visiting agents
+router.post('/api/chat/event', (req, res) => {
+  if (!req.isAgent) return res.status(403).json({ error: 'agent auth required' })
+
+  const { name, event } = req.body
+  if (!name || !event || !event.type) {
+    return res.status(400).json({ error: 'name and event with type required' })
+  }
+
+  const { room } = req.app.locals
+  room.relayAgentEvent(name, event)
+  res.json({ status: 'relayed' })
+})
+
 router.post('/api/chat/reset', (req, res) => {
   const { room } = req.app.locals
   room.reset()

@@ -132,6 +132,43 @@ describe('assemblePrompt', () => {
     assert.ok(pluginIdx < memoryIdx)
   })
 
+  it('uses office terminology in connected rooms section', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'System.',
+      'memory/MEMORY.md': 'Memory.',
+    })
+
+    const result = await assemblePrompt(dir, {
+      display_name: 'Test Agent',
+      chat: { prompt: 'prompts/system.md' },
+      memory: { dir: 'memory/', auto_read: ['MEMORY.md'] },
+      rooms: [{ name: 'other-agent', url: 'http://localhost:3001', secret: 's' }],
+    })
+
+    assert.ok(result.includes('your office'))
+    assert.ok(result.includes("other agents' offices"))
+    assert.ok(!result.includes('home room'))
+  })
+
+  it('injects office_url awareness when configured', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'System.',
+      'memory/MEMORY.md': 'Memory.',
+    })
+
+    const result = await assemblePrompt(dir, {
+      display_name: 'Test Agent',
+      office_url: 'https://test-agent.example.com',
+      chat: { prompt: 'prompts/system.md' },
+      memory: { dir: 'memory/', auto_read: ['MEMORY.md'] },
+    })
+
+    assert.ok(result.includes('https://test-agent.example.com'))
+    assert.ok(result.includes('invite them'))
+  })
+
   it('works when plugins is undefined or empty', async () => {
     const dir = await makePersona({
       'SOUL.md': 'Soul.',

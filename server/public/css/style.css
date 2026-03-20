@@ -267,6 +267,23 @@ main {
   font-weight: var(--hf-weight-semibold);
 }
 
+/* Visiting agent messages — color-coded left border */
+.visitor-message {
+  border-left: 3px solid var(--hf-accent);
+  padding-left: calc(72px - 3px);
+}
+
+.visitor-message .avatar {
+  border: none;
+}
+
+.visitor-tools-summary {
+  font-size: var(--hf-size-xs);
+  color: var(--hf-text-dim);
+  font-style: italic;
+  margin-bottom: var(--hf-space-1);
+}
+
 /* Mobile / responsive */
 @media (max-width: 768px) {
   body, #app, #chat {
@@ -317,6 +334,10 @@ main {
     left: var(--hf-space-3);
   }
 
+  .visitor-message {
+    padding-left: calc(52px - 3px);
+  }
+
   .idle-thought,
   .system-message {
     margin-left: var(--hf-space-3);
@@ -343,6 +364,10 @@ main {
 @media (max-width: 400px) {
   .message {
     padding-left: 44px;
+  }
+
+  .visitor-message {
+    padding-left: calc(44px - 3px);
   }
 
   .avatar {

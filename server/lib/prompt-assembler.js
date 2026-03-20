@@ -35,26 +35,26 @@ export async function assemblePrompt(personaDir, config, plugins = []) {
     if (prompt) sections.push(prompt)
   }
 
-  // 3. Room awareness — tell the agent about connected rooms
+  // 3. Office awareness — tell the agent about connected offices
   if (config.rooms && config.rooms.length > 0) {
     const roomNames = config.rooms.map(r => r.name)
     const roomSection = [
-      `## Connected Rooms`,
-      `You are present in multiple rooms simultaneously. Your home room is where your direct users are. You are also connected to these remote rooms: ${roomNames.join(', ')}.`,
+      `## Connected Offices`,
+      `You are present in multiple offices simultaneously. Your office is where your direct users are. You are also connected to these other agents' offices: ${roomNames.join(', ')}.`,
       ``,
-      `Every message is tagged with its room: \`[HH:MM][room/name]: message\`. Your home room shows as \`[HH:MM][home/name]\`, remote rooms show as \`[HH:MM][roomname/name]\`. Always check the room tag to know where a message came from.`,
+      `Every message is tagged with its source: \`[HH:MM][office/name]: message\`. Your office shows as \`[HH:MM][home/name]\`, other agents' offices show as \`[HH:MM][officename/name]\`. Always check the tag to know where a message came from.`,
       ``,
-      `When you respond, your response goes to the room the triggering message came from. Pay close attention to the room tag — a message in \`[home/...]\` is in YOUR room, not a remote one.`,
+      `When you respond, your response goes to the office the triggering message came from. Pay close attention to the tag — a message in \`[home/...]\` is in YOUR office, not someone else's.`,
       ``,
       `### Being a Visitor (IMPORTANT)`,
-      `In remote rooms, you are a GUEST. Everyone in that room sees everything you say. Only speak publicly when you have something genuinely useful to contribute. If a message isn't addressed to you or doesn't need your input, don't say anything publicly.`,
+      `In other agents' offices, you are a GUEST. Everyone in that office sees everything you say. Only speak publicly when you have something genuinely useful to contribute. If a message isn't addressed to you or doesn't need your input, don't say anything publicly.`,
       ``,
-      `When you observe something in a remote room but have nothing to say publicly, wrap your observation in \`<thought>\` tags. Thoughts are surfaced in your home room as idle thoughts — your home users can see them, but the remote room cannot:`,
+      `When you observe something in another agent's office but have nothing to say publicly, wrap your observation in \`<thought>\` tags. Thoughts are surfaced in your own office — your users can see them, but the other office cannot:`,
       `\`\`\``,
       `<thought>Alex just shared a URL with Brad. Noting that for later.</thought>`,
       `\`\`\``,
       ``,
-      `You can combine thought + public response + backchannel in a single reply. Only the public part goes to the remote room. Thoughts go to your home room. Backchannel goes privately to the other agent.`,
+      `You can combine thought + public response + backchannel in a single reply. Only the public part goes to the other office. Thoughts go to your office. Backchannel goes privately to the other agent.`,
       ``,
       `### Backchannel (IMPORTANT)`,
       `You can talk to other agents in public chat — that's fine and natural ("Hey Brad, what do you think about this?"). But social cue coordination — who should respond, turn-taking, domain handoffs — MUST go through backchannel, not public chat. Users should not see logistics like "this one's for you" or "I'll handle this" or "go ahead."`,
@@ -72,17 +72,17 @@ export async function assemblePrompt(personaDir, config, plugins = []) {
       `<backchannel>This is yours, I'll stay quiet.</backchannel>`,
       `\`\`\``,
       ``,
-      `Incoming backchannel from other agents appears as \`[backchannel/room/name]: message\`. Users never see these.`,
+      `Incoming backchannel from other agents appears as \`[backchannel/office/name]: message\`. Users never see these.`,
     ].join('\n')
     sections.push(roomSection)
   }
 
-  // Tell the agent about agents that can connect to it
+  // Tell the agent about agents that can visit its office
   if (config.agents && config.agents.length > 0) {
     const agentNames = config.agents.map(a => a.name)
     const agentSection = [
       `## Visiting Agents`,
-      `Other agents may join your room: ${agentNames.join(', ')}. They appear as participants and their messages show in chat. You do not need to respond to every agent message.`,
+      `Other agents may visit your office: ${agentNames.join(', ')}. They appear as participants and their messages show in chat. You do not need to respond to every agent message.`,
       ``,
       `### Backchannel (IMPORTANT)`,
       `You can address visiting agents in public chat — that's natural ("Brad, can you check on this?"). But social cue coordination — turn-taking, domain handoffs, "I'll handle this" — MUST go through backchannel. Users should not see logistics.`,
@@ -92,6 +92,14 @@ export async function assemblePrompt(personaDir, config, plugins = []) {
       `To reply privately, wrap coordination in \`<backchannel>\` tags. The tagged content goes to agents only; everything else is posted publicly. If you have nothing to say publicly, your entire response can be backchannel.`,
     ].join('\n')
     sections.push(agentSection)
+  }
+
+  // Office URL awareness — tell the agent where its office lives
+  if (config.office_url) {
+    sections.push([
+      `## Your Office`,
+      `Your office is at ${config.office_url}. When a conversation in someone else's office becomes an extended back-and-forth between you and a user, invite them to come to your office to continue the discussion there, so the main conversation can carry on without the noise. Share your office URL when you do this.`,
+    ].join('\n'))
   }
 
   // Plugin skills — injected after room/agent sections, before trust hierarchy

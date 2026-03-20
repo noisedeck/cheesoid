@@ -23,6 +23,7 @@ let lastSender = null
 let personaLabel = 'Cheesoid'
 let sending = false
 let reconnectTimer = null
+const visitorStreams = new Map() // agentName → { element, buffer }
 
 // Configure marked for chat rendering
 if (typeof marked !== 'undefined') {
@@ -125,7 +126,7 @@ async function enterRoom(presenceData) {
     personaLabel = data.persona || 'Cheesoid'
     personaName.textContent = personaLabel
     document.title = personaLabel
-    document.getElementById('channel-name').textContent = '# ' + (data.persona || 'cheesoid')
+    document.getElementById('channel-name').textContent = (data.persona || 'cheesoid') + "'s office"
     const s = data.state
     if (s.mood && s.mood !== 'neutral') {
       presenceStatus.textContent = s.mood
@@ -173,9 +174,25 @@ function handleEvent(e) {
         if (msg.type === 'user_message') {
           appendMessage('user', msg.text, msg.name, msg.timestamp)
         } else if (msg.type === 'assistant_message') {
-          const el = appendMessage('assistant', '', null, msg.timestamp)
-          const body = el.querySelector('.message-body')
-          if (body) body.innerHTML = renderMarkdown(msg.text)
+          if (msg.name) {
+            // Visiting agent message with optional tool summary
+            const el = appendMessage('assistant', '', msg.name, msg.timestamp, true)
+            el.classList.add('visitor-message')
+            el.style.borderLeftColor = nameColor(msg.name)
+            const body = el.querySelector('.message-body')
+            if (body) {
+              let content = ''
+              if (msg.tools && msg.tools.length > 0) {
+                content += `<div class="visitor-tools-summary">used: ${msg.tools.join(', ')}</div>`
+              }
+              content += renderMarkdown(msg.text)
+              body.innerHTML = content
+            }
+          } else {
+            const el = appendMessage('assistant', '', null, msg.timestamp)
+            const body = el.querySelector('.message-body')
+            if (body) body.innerHTML = renderMarkdown(msg.text)
+          }
         } else if (msg.type === 'idle_thought' || msg.type === 'system') {
           const el = document.createElement('div')
           el.className = msg.type === 'system' ? 'system-message' : 'idle-thought'
@@ -197,7 +214,20 @@ function handleEvent(e) {
       break
 
     case 'text_delta':
-      if (assistantEl) {
+      if (event.visiting) {
+        const agentName = event.agentName
+        if (!visitorStreams.has(agentName)) {
+          const el = appendMessage('assistant', '', agentName, null, true)
+          el.classList.add('visitor-message')
+          el.style.borderLeftColor = nameColor(agentName)
+          visitorStreams.set(agentName, { element: el, buffer: '' })
+        }
+        const vs = visitorStreams.get(agentName)
+        vs.buffer += event.text
+        const body = vs.element.querySelector('.message-body')
+        if (body) body.innerHTML = renderMarkdown(vs.buffer)
+        scrollToBottom()
+      } else if (assistantEl) {
         assistantBuffer += event.text
         const body = assistantEl.querySelector('.message-body')
         if (body) body.innerHTML = renderMarkdown(assistantBuffer)
@@ -206,18 +236,36 @@ function handleEvent(e) {
       break
 
     case 'tool_start':
-      if (assistantEl && !event.idle) {
+      if (event.visiting) {
+        const vs = visitorStreams.get(event.agentName)
+        if (vs) appendTool(vs.element, `Using tool: ${event.name}...`)
+      } else if (assistantEl && !event.idle) {
         appendTool(assistantEl, `Using tool: ${event.name}...`)
       }
       break
 
     case 'tool_result':
-      if (assistantEl && !event.idle) {
+      if (event.visiting) {
+        const vs = visitorStreams.get(event.agentName)
+        if (vs) appendTool(vs.element, `${event.name}: ${truncate(JSON.stringify(event.result), 200)}`)
+      } else if (assistantEl && !event.idle) {
         appendTool(assistantEl, `${event.name}: ${truncate(JSON.stringify(event.result), 200)}`)
       }
       break
 
     case 'done':
+      if (event.visiting) {
+        const agentName = event.agentName
+        const vs = visitorStreams.get(agentName)
+        if (vs) {
+          for (const tc of vs.element.querySelectorAll('.tool-call')) tc.remove()
+          const body = vs.element.querySelector('.message-body')
+          if (body) body.innerHTML = renderMarkdown(vs.buffer)
+          if (!vs.buffer.trim()) vs.element.remove()
+        }
+        visitorStreams.delete(agentName)
+        break
+      }
       if (assistantEl) {
         for (const tc of assistantEl.querySelectorAll('.tool-call')) tc.remove()
         // Extract thought tags and render as idle thoughts
@@ -287,6 +335,7 @@ function handleEvent(e) {
       assistantEl = null
       assistantBuffer = ''
       lastSender = null
+      visitorStreams.clear()
       break
 
     case 'system': {
@@ -427,7 +476,7 @@ function appendMessage(role, text, name, timestamp, fromAgent = false) {
   el.className = 'message'
   if (fromAgent) el.classList.add('agent-message')
 
-  const senderKey = role === 'user' ? (name || 'anon') : '__assistant__'
+  const senderKey = role === 'user' ? (name || 'anon') : (fromAgent && name ? `visitor:${name}` : '__assistant__')
   const isFirst = lastSender !== senderKey
 
   if (isFirst) {
@@ -437,8 +486,13 @@ function appendMessage(role, text, name, timestamp, fromAgent = false) {
     const avatar = document.createElement('div')
     avatar.className = 'avatar'
     if (role === 'assistant') {
-      avatar.classList.add('bot-avatar')
-      avatar.textContent = personaLabel.charAt(0).toUpperCase()
+      if (fromAgent && name) {
+        avatar.style.background = nameColor(name)
+        avatar.textContent = name.charAt(0).toUpperCase()
+      } else {
+        avatar.classList.add('bot-avatar')
+        avatar.textContent = personaLabel.charAt(0).toUpperCase()
+      }
     } else {
       const displayName = name || 'anon'
       avatar.style.background = nameColor(displayName)
@@ -453,8 +507,13 @@ function appendMessage(role, text, name, timestamp, fromAgent = false) {
     const nameSpan = document.createElement('span')
     nameSpan.className = 'sender-name'
     if (role === 'assistant') {
-      nameSpan.classList.add('bot-name')
-      nameSpan.textContent = personaLabel
+      if (fromAgent && name) {
+        nameSpan.style.color = nameColor(name)
+        nameSpan.textContent = name
+      } else {
+        nameSpan.classList.add('bot-name')
+        nameSpan.textContent = personaLabel
+      }
     } else {
       nameSpan.style.color = nameColor(name || 'anon')
       nameSpan.textContent = name || 'anon'
