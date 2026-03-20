@@ -474,7 +474,7 @@ function appendMessage(role, text, name, timestamp, fromAgent = false) {
   // Message body
   const body = document.createElement('div')
   body.className = 'message-body'
-  if (role === 'user' && !fromAgent) {
+  if (role === 'user' && !fromAgent && name !== 'webhook') {
     body.textContent = text
   } else {
     body.innerHTML = renderMarkdown(text)
