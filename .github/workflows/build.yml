@@ -21,6 +21,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to self-hosted registry
+        run: echo "${{ secrets.REGISTRY_PASS }}" | docker login registry.noisefactor.io -u "${{ secrets.REGISTRY_USER }}" --password-stdin
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -29,6 +32,11 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+      - name: Push to self-hosted registry
+        run: |
+          docker tag ghcr.io/noisedeck/cheesoid:latest registry.noisefactor.io/cheesoid:latest
+          docker push registry.noisefactor.io/cheesoid:latest
 
   deploy:
     needs: build
