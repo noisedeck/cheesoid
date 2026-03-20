@@ -23,7 +23,7 @@
       display: flex;
       align-items: center;
       gap: var(--hf-space-6);
-      padding: var(--hf-space-6);
+      padding: var(--hf-space-8) var(--hf-space-6);
       max-width: 960px;
       margin: 0 auto;
     }
@@ -54,44 +54,116 @@
       line-height: var(--hf-leading-normal);
     }
 
-    .features {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: var(--hf-space-6);
+    /* The loop */
+    .loop {
       max-width: 960px;
       margin: 0 auto;
-      padding: var(--hf-space-8) var(--hf-space-6);
+      padding: 0 var(--hf-space-6) var(--hf-space-8);
+      position: relative;
     }
 
-    .feature {
-      padding: var(--hf-space-6);
-      background: var(--hf-bg-surface);
-      border: 1px solid var(--hf-border);
-      border-radius: var(--hf-radius);
+    .loop-track {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      position: relative;
     }
 
-    .feature h3 {
+    .loop-track::before {
+      content: '';
+      position: absolute;
+      left: 19px;
+      top: 10px;
+      bottom: 10px;
+      width: 2px;
+      background: var(--hf-accent);
+      opacity: 0.3;
+    }
+
+    .loop-track::after {
+      content: '';
+      position: absolute;
+      left: 15px;
+      bottom: 4px;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 8px solid var(--hf-accent);
+      opacity: 0.5;
+    }
+
+    .loop-arrow-top {
+      position: absolute;
+      left: 15px;
+      top: 2px;
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-bottom: 8px solid var(--hf-accent);
+      opacity: 0.5;
+    }
+
+    .loop-node {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--hf-space-4);
+      padding: var(--hf-space-5) 0;
+    }
+
+    .loop-dot {
+      width: 40px;
+      height: 40px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .loop-dot::before {
+      content: '';
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--hf-accent);
+    }
+
+    .loop-node:nth-child(1) .loop-dot::before { background: var(--hf-accent); }
+    .loop-node:nth-child(2) .loop-dot::before { background: oklch(65% 0.15 230); }
+    .loop-node:nth-child(3) .loop-dot::before { background: oklch(65% 0.12 280); }
+    .loop-node:nth-child(4) .loop-dot::before { background: oklch(65% 0.15 50); }
+
+    .loop-content h3 {
       font-family: var(--hf-font-family-mono);
-      font-size: var(--hf-size-base);
+      font-size: var(--hf-size-lg);
       font-weight: var(--hf-weight-semibold);
-      color: var(--hf-accent);
-      margin: 0 0 var(--hf-space-2) 0;
+      color: var(--hf-text-bright);
+      margin: 0 0 var(--hf-space-1) 0;
     }
 
-    .feature p {
-      font-size: var(--hf-size-sm);
+    .loop-node:nth-child(1) .loop-content h3 { color: var(--hf-accent); }
+    .loop-node:nth-child(2) .loop-content h3 { color: oklch(65% 0.15 230); }
+    .loop-node:nth-child(3) .loop-content h3 { color: oklch(65% 0.12 280); }
+    .loop-node:nth-child(4) .loop-content h3 { color: oklch(65% 0.15 50); }
+
+    .loop-content p {
+      font-size: var(--hf-size-lg);
       color: var(--hf-text-dim);
       margin: 0;
       line-height: var(--hf-leading-normal);
     }
 
+    /* Code sections */
     .code-sections {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: var(--hf-space-6);
       max-width: 960px;
       margin: 0 auto;
-      padding: var(--hf-space-8) var(--hf-space-6);
+      padding: var(--hf-space-6) var(--hf-space-6) var(--hf-space-8);
     }
 
     .quickstart h2 {
@@ -177,9 +249,8 @@
         width: 72px;
         height: 72px;
       }
-      .features {
-        grid-template-columns: 1fr;
-        padding: var(--hf-space-6) var(--hf-space-4);
+      .loop {
+        padding: 0 var(--hf-space-4) var(--hf-space-6);
       }
       .code-sections {
         grid-template-columns: 1fr;
@@ -215,34 +286,41 @@
     </svg>
     <div class="hero-text">
       <h1>Cheesoid</h1>
-      <p class="tagline">A framework for running persistent AI personas with memory, state, and multi-user chat.</p>
+      <p class="tagline">Persistent AI personas with a single thread of consciousness. Agents with agency.</p>
     </div>
   </section>
 
-  <section class="features">
-    <div class="feature">
-      <h3>Persistent Memory</h3>
-      <p>Agents read and write their own memory files. Context carries across sessions without any extra wiring.</p>
-    </div>
-    <div class="feature">
-      <h3>Cognitive State</h3>
-      <p>Mood, energy, focus, and open threads persist across restarts. Your agent picks up where it left off.</p>
-    </div>
-    <div class="feature">
-      <h3>Multi-User Chat</h3>
-      <p>Multiple people share a room. The agent sees who's talking, with scrollback for reconnecting users.</p>
-    </div>
-    <div class="feature">
-      <h3>Idle Thoughts</h3>
-      <p>After a period of inactivity, the agent reflects on its own. It stays present even when nobody's around.</p>
-    </div>
-    <div class="feature">
-      <h3>Custom Tools</h3>
-      <p>Give your persona abilities beyond conversation. Define tools in JavaScript, the agent discovers them automatically.</p>
-    </div>
-    <div class="feature">
-      <h3>Multi-Agent Rooms</h3>
-      <p>Agents can join other cheesoid rooms as participants. Each maintains a single consciousness across all rooms.</p>
+  <section class="loop">
+    <div class="loop-track">
+      <div class="loop-arrow-top"></div>
+      <div class="loop-node">
+        <div class="loop-dot"></div>
+        <div class="loop-content">
+          <h3>Memory</h3>
+          <p>Multiple levels of memory. Context carries naturally and seamlessly.</p>
+        </div>
+      </div>
+      <div class="loop-node">
+        <div class="loop-dot"></div>
+        <div class="loop-content">
+          <h3>Presence</h3>
+          <p>Multi-user, multi-agent chat. Built for cooperation.</p>
+        </div>
+      </div>
+      <div class="loop-node">
+        <div class="loop-dot"></div>
+        <div class="loop-content">
+          <h3>Reflection</h3>
+          <p>Tracks open threads of focus. Thinks on its own.</p>
+        </div>
+      </div>
+      <div class="loop-node">
+        <div class="loop-dot"></div>
+        <div class="loop-content">
+          <h3>Action</h3>
+          <p>Webhooks, custom tools. Doesn't need a conversation to take action.</p>
+        </div>
+      </div>
     </div>
   </section>
 
