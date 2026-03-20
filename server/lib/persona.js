@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import yaml from 'js-yaml'
+import { loadPlugins } from './plugins.js'
 
 export async function loadPersona(personaDir) {
   const configPath = join(personaDir, 'persona.yaml')
@@ -13,7 +14,8 @@ export async function loadPersona(personaDir) {
 
   const config = yaml.load(raw)
   resolveEnvVars(config)
-  return { dir: personaDir, config }
+  const plugins = await loadPlugins(config.plugins || [])
+  return { dir: personaDir, config, plugins }
 }
 
 function resolveEnvVars(obj) {

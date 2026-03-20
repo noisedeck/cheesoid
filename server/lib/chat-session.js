@@ -55,12 +55,12 @@ export class Room {
   async initialize() {
     if (this.systemPrompt) return // already initialized
 
-    const { dir, config } = this.persona
+    const { dir, config, plugins } = this.persona
     this.memory = new Memory(dir, config.memory?.dir || 'memory/')
     this.state = new State(dir)
     this.chatLog = new ChatLog(dir)
     await this.state.load()
-    this.systemPrompt = await assemblePrompt(dir, config)
+    this.systemPrompt = await assemblePrompt(dir, config, plugins)
     this.tools = await loadTools(dir, config, this.memory, this.state, this)
 
     // Replay recent history into agent context

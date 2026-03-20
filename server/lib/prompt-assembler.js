@@ -13,7 +13,7 @@ export function currentTimestamp() {
   return `Current date: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}. Current time: ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}.`
 }
 
-export async function assemblePrompt(personaDir, config) {
+export async function assemblePrompt(personaDir, config, plugins = []) {
   const sections = []
 
   // 1. Identity preamble from config
@@ -92,6 +92,17 @@ export async function assemblePrompt(personaDir, config) {
       `To reply privately, wrap coordination in \`<backchannel>\` tags. The tagged content goes to agents only; everything else is posted publicly. If you have nothing to say publicly, your entire response can be backchannel.`,
     ].join('\n')
     sections.push(agentSection)
+  }
+
+  // Plugin skills — injected after room/agent sections, before trust hierarchy
+  for (const plugin of plugins) {
+    for (const skill of plugin.skills) {
+      let section = `## Plugin: ${plugin.name}\n\n${skill.content}`
+      if (skill.referencesDir) {
+        section += `\n\nReference docs available via \`read_file\` at: \`${skill.referencesDir}/\``
+      }
+      sections.push(section)
+    }
   }
 
   sections.push(SOURCE_TRUST_HIERARCHY)

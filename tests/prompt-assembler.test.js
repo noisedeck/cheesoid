@@ -96,4 +96,55 @@ describe('assemblePrompt', () => {
     const memoryIdx = result.indexOf('Memory content.')
     assert.ok(trustIdx < memoryIdx)
   })
+
+  it('includes plugin skill content after system prompt', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'System prompt.',
+      'memory/MEMORY.md': 'Memory.',
+    })
+
+    const plugins = [{
+      name: 'test-plugin',
+      skills: [{
+        name: 'test-skill',
+        content: '# Test Skill\n\nFollow the procedure.',
+        referencesDir: '/fake/path/references',
+      }],
+    }]
+
+    const result = await assemblePrompt(dir, {
+      chat: { prompt: 'prompts/system.md' },
+      memory: { dir: 'memory/', auto_read: ['MEMORY.md'] },
+    }, plugins)
+
+    assert.ok(result.includes('# Test Skill'))
+    assert.ok(result.includes('Follow the procedure.'))
+    assert.ok(result.includes('/fake/path/references'))
+
+    // Plugin content should be after system prompt but before trust hierarchy and memory
+    const systemIdx = result.indexOf('System prompt.')
+    const pluginIdx = result.indexOf('# Test Skill')
+    const trustIdx = result.indexOf('Source Trust Hierarchy')
+    const memoryIdx = result.indexOf('Memory.')
+    assert.ok(systemIdx < pluginIdx)
+    assert.ok(pluginIdx < trustIdx)
+    assert.ok(pluginIdx < memoryIdx)
+  })
+
+  it('works when plugins is undefined or empty', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'System.',
+      'memory/MEMORY.md': 'Memory.',
+    })
+
+    const result = await assemblePrompt(dir, {
+      chat: { prompt: 'prompts/system.md' },
+      memory: { dir: 'memory/', auto_read: ['MEMORY.md'] },
+    })
+
+    assert.ok(result.includes('Soul.'))
+    assert.ok(result.includes('System.'))
+  })
 })
