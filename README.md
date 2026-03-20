@@ -1,10 +1,12 @@
 # Cheesoid
 
+[cheesoid.noisefactor.io](https://cheesoid.noisefactor.io)
+
 A framework for running persistent AI personas with memory, state, and a multi-user chat UI.
 
 You create a directory with a few files that define who your agent is. Cheesoid handles the rest: web UI, memory persistence, idle thoughts, multi-agent rooms, webhooks, shared workspace, scrollback.
 
-We run this in production at [cheesoid.noisefactor.io](https://cheesoid.noisefactor.io). The personas there handle revenue operations, infrastructure monitoring, and project management — each with tool access to production systems. The `personas/` directory in this repo contains sanitized versions showing the structure we use.
+We run this in production. The personas handle revenue operations, infrastructure monitoring, and project management — each with tool access to production systems. The `personas/` directory in this repo contains sanitized versions showing the structure we use.
 
 ## Security
 
