@@ -205,8 +205,17 @@ function handleEvent(e) {
       break
 
     case 'user_message':
-      // Someone sent a message (could be us or someone else)
-      appendMessage('user', event.text, event.name, null, event.fromAgent)
+      // If this visiting agent had a tool stream, clean it up — the final
+      // message replaces the tool-use placeholder
+      if (event.fromAgent && visitorStreams.has(event.name)) {
+        const vs = visitorStreams.get(event.name)
+        for (const tc of vs.element.querySelectorAll('.tool-call')) tc.remove()
+        const body = vs.element.querySelector('.message-body')
+        if (body) body.innerHTML = renderMarkdown(event.text)
+        visitorStreams.delete(event.name)
+      } else {
+        appendMessage('user', event.text, event.name, null, event.fromAgent)
+      }
       if (!event.fromAgent) {
         assistantEl = appendMessage('assistant', '')
         assistantBuffer = ''
@@ -214,20 +223,7 @@ function handleEvent(e) {
       break
 
     case 'text_delta':
-      if (event.visiting) {
-        const agentName = event.agentName
-        if (!visitorStreams.has(agentName)) {
-          const el = appendMessage('assistant', '', agentName, null, true)
-          el.classList.add('visitor-message')
-          el.style.borderLeftColor = nameColor(agentName)
-          visitorStreams.set(agentName, { element: el, buffer: '' })
-        }
-        const vs = visitorStreams.get(agentName)
-        vs.buffer += event.text
-        const body = vs.element.querySelector('.message-body')
-        if (body) body.innerHTML = renderMarkdown(vs.buffer)
-        scrollToBottom()
-      } else if (assistantEl) {
+      if (assistantEl) {
         assistantBuffer += event.text
         const body = assistantEl.querySelector('.message-body')
         if (body) body.innerHTML = renderMarkdown(assistantBuffer)
@@ -237,8 +233,14 @@ function handleEvent(e) {
 
     case 'tool_start':
       if (event.visiting) {
-        const vs = visitorStreams.get(event.agentName)
-        if (vs) appendTool(vs.element, `Using tool: ${event.name}...`)
+        const agentName = event.agentName
+        if (!visitorStreams.has(agentName)) {
+          const el = appendMessage('assistant', '', agentName, null, true)
+          el.classList.add('visitor-message')
+          el.style.borderLeftColor = nameColor(agentName)
+          visitorStreams.set(agentName, { element: el, buffer: '' })
+        }
+        appendTool(visitorStreams.get(agentName).element, `Using tool: ${event.name}...`)
       } else if (assistantEl && !event.idle) {
         appendTool(assistantEl, `Using tool: ${event.name}...`)
       }
@@ -254,18 +256,6 @@ function handleEvent(e) {
       break
 
     case 'done':
-      if (event.visiting) {
-        const agentName = event.agentName
-        const vs = visitorStreams.get(agentName)
-        if (vs) {
-          for (const tc of vs.element.querySelectorAll('.tool-call')) tc.remove()
-          const body = vs.element.querySelector('.message-body')
-          if (body) body.innerHTML = renderMarkdown(vs.buffer)
-          if (!vs.buffer.trim()) vs.element.remove()
-        }
-        visitorStreams.delete(agentName)
-        break
-      }
       if (assistantEl) {
         for (const tc of assistantEl.querySelectorAll('.tool-call')) tc.remove()
         // Extract thought tags and render as idle thoughts

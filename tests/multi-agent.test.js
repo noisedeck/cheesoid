@@ -88,33 +88,14 @@ describe('Multi-agent room', () => {
     assert.ok(lastMsg.content.includes('hello from guest'))
   })
 
-  it('relayAgentEvent tracks visitor streams', async () => {
+  it('relayAgentEvent broadcasts tool events with agentName', async () => {
     const host = servers[0]
-    host.room.relayAgentEvent('Brad', { type: 'text_delta', text: 'thinking...' })
-
-    assert.ok(host.room._visitorStreams instanceof Map)
-    assert.ok(host.room._visitorStreams.has('Brad'))
-    assert.equal(host.room._visitorStreams.get('Brad').text, 'thinking...')
-
-    // Clean up
-    host.room.relayAgentEvent('Brad', { type: 'done' })
-  })
-
-  it('relayAgentEvent records history with tool summary on done', async () => {
-    const host = servers[0]
+    // relayAgentEvent is fire-and-forget for tool events — no accumulation
     host.room.relayAgentEvent('Brad', { type: 'tool_start', name: 'read_memory' })
-    host.room.relayAgentEvent('Brad', { type: 'text_delta', text: 'I checked ' })
-    host.room.relayAgentEvent('Brad', { type: 'text_delta', text: 'the memory.' })
-    host.room.relayAgentEvent('Brad', { type: 'done' })
-
-    const lastHistory = host.room.history[host.room.history.length - 1]
-    assert.equal(lastHistory.type, 'assistant_message')
-    assert.equal(lastHistory.name, 'Brad')
-    assert.equal(lastHistory.text, 'I checked the memory.')
-    assert.deepEqual(lastHistory.tools, ['read_memory'])
+    // Just verify it doesn't throw — broadcast goes to SSE clients
   })
 
-  it('POST /api/chat/event relays visitor streaming events', async () => {
+  it('POST /api/chat/event relays visitor tool events', async () => {
     const res = await fetch('http://localhost:4001/api/chat/event', {
       method: 'POST',
       headers: {
@@ -123,7 +104,7 @@ describe('Multi-agent room', () => {
       },
       body: JSON.stringify({
         name: 'Guest',
-        event: { type: 'text_delta', text: 'hello' },
+        event: { type: 'tool_start', name: 'search_history' },
       }),
     })
     const body = await res.json()
