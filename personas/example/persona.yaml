@@ -3,6 +3,9 @@ display_name: "Example Agent"
 model: claude-sonnet-4-6
 max_budget_usd: 6
 
+theme: gray
+data_theme: gray-dark
+
 tools: tools/tools.js
 
 chat:
