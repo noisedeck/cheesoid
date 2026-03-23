@@ -51,7 +51,7 @@ export async function assemblePrompt(personaDir, config, plugins = []) {
       ``,
       `When you observe something in another agent's office but have nothing to say publicly, wrap your observation in \`<thought>\` tags. Thoughts are surfaced in your own office — your users can see them, but the other office cannot:`,
       `\`\`\``,
-      `<thought>Alex just shared a URL with Brad. Noting that for later.</thought>`,
+      `<thought>Someone just shared a URL in the other office. Noting that for later.</thought>`,
       `\`\`\``,
       ``,
       `You can combine thought + public response + backchannel in a single reply. Only the public part goes to the other office. Thoughts go to your office. Backchannel goes privately to the other agent.`,

@@ -10,7 +10,7 @@
 
 **Spec:** `docs/specs/2026-03-16-agent-experience-improvements.md`
 
-**Working directory:** `/Users/aayars/platform/cheesoid`
+**Working directory:** `/path/to/cheesoid`
 
 ---
 
@@ -134,7 +134,7 @@ describe('SharedWorkspace', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/aayars/platform/cheesoid && node --test tests/shared-workspace.test.js`
+Run: `cd /path/to/cheesoid && node --test tests/shared-workspace.test.js`
 Expected: FAIL — module not found
 
 - [ ] **Step 3: Write the implementation**
@@ -238,13 +238,13 @@ export function buildSharedWorkspaceTools(sharedRoot) {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aayars/platform/cheesoid && node --test tests/shared-workspace.test.js`
+Run: `cd /path/to/cheesoid && node --test tests/shared-workspace.test.js`
 Expected: All 9 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/aayars/platform/cheesoid
+cd /path/to/cheesoid
 git add server/lib/shared-workspace.js tests/shared-workspace.test.js
 git commit -m "feat: add shared workspace tools (list/read/write /shared/)"
 ```
@@ -284,13 +284,13 @@ In the `execute` function, add after the `memoryTools.handles` check (after line
 
 - [ ] **Step 2: Run all tests**
 
-Run: `cd /Users/aayars/platform/cheesoid && npm test`
+Run: `cd /path/to/cheesoid && npm test`
 Expected: All tests pass (shared workspace tools don't need room/memory fixtures)
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /Users/aayars/platform/cheesoid
+cd /path/to/cheesoid
 git add server/lib/tools.js
 git commit -m "feat: register shared workspace tools in tool loader"
 ```
@@ -354,7 +354,7 @@ describe('startupChecks', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/aayars/platform/cheesoid && node --test tests/startup-checks.test.js`
+Run: `cd /path/to/cheesoid && node --test tests/startup-checks.test.js`
 Expected: FAIL — module not found
 
 - [ ] **Step 3: Write the implementation**
@@ -385,13 +385,13 @@ export function runStartupChecks(requiredPaths) {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd /Users/aayars/platform/cheesoid && node --test tests/startup-checks.test.js`
+Run: `cd /path/to/cheesoid && node --test tests/startup-checks.test.js`
 Expected: All 5 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/aayars/platform/cheesoid
+cd /path/to/cheesoid
 git add server/lib/startup-checks.js tests/startup-checks.test.js
 git commit -m "feat: add startup path verification module"
 ```
@@ -443,13 +443,13 @@ router.get('/up', (req, res) => {
 
 - [ ] **Step 3: Run all tests**
 
-Run: `cd /Users/aayars/platform/cheesoid && npm test`
+Run: `cd /path/to/cheesoid && npm test`
 Expected: All tests pass
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/aayars/platform/cheesoid
+cd /path/to/cheesoid
 git add server/index.js server/routes/health.js
 git commit -m "feat: gate /up health check on startup volume verification"
 ```
@@ -494,7 +494,7 @@ Append to `tests/prompt-assembler.test.js`, inside the `describe` block:
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/aayars/platform/cheesoid && node --test tests/prompt-assembler.test.js`
+Run: `cd /path/to/cheesoid && node --test tests/prompt-assembler.test.js`
 Expected: FAIL — "Source Trust Hierarchy" not found
 
 - [ ] **Step 3: Add trust hierarchy to prompt assembler**
@@ -519,13 +519,13 @@ In the `assemblePrompt` function, add before the memory section comment (before 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd /Users/aayars/platform/cheesoid && node --test tests/prompt-assembler.test.js`
+Run: `cd /path/to/cheesoid && node --test tests/prompt-assembler.test.js`
 Expected: All 4 tests PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/aayars/platform/cheesoid
+cd /path/to/cheesoid
 git add server/lib/prompt-assembler.js tests/prompt-assembler.test.js
 git commit -m "feat: inject source trust hierarchy into all agent prompts"
 ```
@@ -551,7 +551,7 @@ RUN apt-get update && apt-get install -y git curl jq && rm -rf /var/lib/apt/list
 
 - [ ] **Step 2: Verify Dockerfile builds**
 
-Run: `cd /Users/aayars/platform/cheesoid && docker build -t cheesoid-test . 2>&1 | tail -5`
+Run: `cd /path/to/cheesoid && docker build -t cheesoid-test . 2>&1 | tail -5`
 Expected: Build completes successfully
 
 - [ ] **Step 3: Verify jq is available**
@@ -562,7 +562,7 @@ Expected: `jq-1.x` version string
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /Users/aayars/platform/cheesoid
+cd /path/to/cheesoid
 git add Dockerfile
 git commit -m "feat: add jq to container image"
 ```
@@ -575,13 +575,13 @@ git commit -m "feat: add jq to container image"
 
 - [ ] **Step 1: Run all tests**
 
-Run: `cd /Users/aayars/platform/cheesoid && npm test`
+Run: `cd /path/to/cheesoid && npm test`
 Expected: All tests pass (including new shared-workspace and startup-checks tests)
 
 - [ ] **Step 2: Squash commits and push**
 
 ```bash
-cd /Users/aayars/platform/cheesoid
+cd /path/to/cheesoid
 git rebase -i HEAD~6
 # Squash all into one commit:
 # "feat: agent experience improvements (shared workspace, startup checks, jq, source trust hierarchy)"
@@ -600,7 +600,7 @@ ssh ops@172.105.109.25 'docker volume create cheesoid-shared'
 
 - [ ] **Step 2: Update dispatch-cheesoid-deploy.yml**
 
-In `/Users/aayars/platform/scaffold/.github/workflows/dispatch-cheesoid-deploy.yml`, add `-v cheesoid-shared:/shared` to each agent's `docker run` block:
+In `/path/to/scaffold/.github/workflows/dispatch-cheesoid-deploy.yml`, add `-v cheesoid-shared:/shared` to each agent's `docker run` block:
 
 **Brad block** (after the existing `-v` lines, before `--restart`):
 ```bash
@@ -625,7 +625,7 @@ In `/Users/aayars/platform/scaffold/.github/workflows/dispatch-cheesoid-deploy.y
 - [ ] **Step 3: Commit scaffold changes**
 
 ```bash
-cd /Users/aayars/platform/scaffold
+cd /path/to/scaffold
 git add .github/workflows/dispatch-cheesoid-deploy.yml
 git commit -m "feat: mount shared workspace volume in all cheesoid containers"
 git push

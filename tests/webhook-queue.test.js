@@ -36,7 +36,7 @@ describe('Webhook queueing', () => {
       if (event.type === 'error') errors.push(event.message)
     }
 
-    room._processMessage('home', 'alex', 'hello')
+    room._processMessage('home', 'user1', 'hello')
     assert.equal(room._messageQueue.length, 0)
     assert.equal(errors.length, 1)
     assert.ok(errors[0].includes('thinking'))

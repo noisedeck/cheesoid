@@ -1,6 +1,6 @@
 name: ehsre
 display_name: "Emergency Holographic SRE"
-office_url: https://ehsre.noisefactor.io
+## office_url: https://your-ehsre-instance.example.com
 model: claude-sonnet-4-6
 max_budget_usd: 10
 
@@ -16,7 +16,7 @@ chat:
 ## Configure SSH, monitoring APIs, and docker access via environment variables and tools.
 
 ## Plugins — Claude Code plugins loaded into the system prompt at startup.
-## See: https://github.com/noisefactorllc/sre-discipline
+## See: https://github.com/your-org/sre-discipline
 # plugins:
 #   - /app/plugins/sre-discipline
 
