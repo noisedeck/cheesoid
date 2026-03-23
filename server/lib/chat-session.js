@@ -98,6 +98,8 @@ export class Room {
       this.roomClients.set(roomConfig.name, client)
       client.connect()
     }
+
+    this._startIdleTimer()
   }
 
   // Register an SSE client for broadcast
