@@ -157,6 +157,7 @@ export function createOpenAICompatProvider(config) {
 
       if (openaiTools.length > 0) {
         body.tools = openaiTools
+        body.tool_choice = 'auto'
       }
 
       const MAX_RETRIES = 3

@@ -113,6 +113,19 @@ export async function assemblePrompt(personaDir, config, plugins = []) {
     }
   }
 
+  // Tool-use discipline for non-Anthropic providers
+  if (config.provider === 'openai-compat') {
+    sections.push(`## Tool Use — CRITICAL
+
+You have tools available via function calling. You MUST use them correctly:
+
+- **NEVER narrate or describe tool use in your text response.** Do not write "Let me check..." or "Running command..." or "Checking notifications..." and then describe what you would find. That is hallucination.
+- **ALWAYS use the actual function calling mechanism** to invoke tools. When you need to run a command, call the \`bash\` tool. When you need to read a file, call \`read_file\`. When you need to check state, call \`get_state\`.
+- **If you catch yourself writing out what a tool would return — STOP.** Call the tool instead.
+- **Do not assume tool outputs.** You do not know what a command will return until you run it.
+- **One action at a time.** Call a tool, wait for the result, then decide what to do next.`)
+  }
+
   sections.push(SOURCE_TRUST_HIERARCHY)
 
   // Chat history awareness
