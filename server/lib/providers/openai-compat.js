@@ -42,15 +42,16 @@ export async function _processStream(stream, onEvent) {
       onEvent({ type: 'text_delta', text: delta.content })
     }
 
-    // Reasoning content (DeepSeek R1, etc.)
-    if (delta.reasoning_content) {
+    // Reasoning content (DeepSeek uses reasoning_content, Kimi uses reasoning)
+    const reasoning = delta.reasoning_content || delta.reasoning
+    if (reasoning) {
       if (!hasThinking) {
         contentBlocks.push({ type: 'thinking', thinking: '', signature: '' })
         hasThinking = true
       }
       const thinkingBlock = contentBlocks.find(b => b.type === 'thinking')
-      thinkingBlock.thinking += delta.reasoning_content
-      onEvent({ type: 'thinking_delta', text: delta.reasoning_content })
+      thinkingBlock.thinking += reasoning
+      onEvent({ type: 'thinking_delta', text: reasoning })
     }
 
     // Tool calls

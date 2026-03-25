@@ -82,6 +82,21 @@ describe('_processStream', () => {
     assert.equal(result.contentBlocks[1].type, 'text')
     assert.equal(result.contentBlocks[1].text, 'The answer.')
   })
+
+  it('captures reasoning (Kimi format) as thinking blocks', async () => {
+    const events = []
+    const stream = makeChunks([
+      { reasoning: 'Thinking about it...' },
+      { reasoning: ' done.' },
+      { content: 'Here you go.' },
+    ])
+    const result = await _processStream(stream, e => events.push(e))
+    assert.equal(result.contentBlocks.length, 2)
+    assert.equal(result.contentBlocks[0].type, 'thinking')
+    assert.equal(result.contentBlocks[0].thinking, 'Thinking about it... done.')
+    assert.equal(result.contentBlocks[1].type, 'text')
+    assert.equal(result.contentBlocks[1].text, 'Here you go.')
+  })
 })
 
 describe('_processStream tool calls', () => {
