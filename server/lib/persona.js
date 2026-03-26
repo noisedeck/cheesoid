@@ -20,6 +20,10 @@ export async function loadPersona(personaDir) {
     validateOpenAICompat(config)
   }
 
+  if (config.orchestrator) {
+    validateOrchestrator(config)
+  }
+
   const plugins = await loadPlugins(config.plugins || [])
   return { dir: personaDir, config, plugins }
 }
@@ -46,6 +50,26 @@ function validateOpenAICompat(config) {
       config._degradationNotices.push(`- ${toolName} is not available with your current provider. Do not attempt to use it.`)
     }
   }
+}
+
+function validateOrchestrator(config) {
+  const name = config.name || 'unknown'
+  const orch = config.orchestrator
+
+  if (!orch.provider) {
+    orch.provider = 'anthropic'
+  }
+
+  if (orch.provider === 'openai-compat') {
+    if (!orch.base_url) {
+      throw new Error(`[${name}] orchestrator with openai-compat requires base_url`)
+    }
+    if (!orch.api_key) {
+      throw new Error(`[${name}] orchestrator with openai-compat requires api_key`)
+    }
+  }
+
+  console.log(`[${name}] Hybrid mode: orchestrator=${orch.provider}/${orch.model}, executor=${config.provider || 'anthropic'}/${config.model}`)
 }
 
 function resolveEnvVars(obj) {

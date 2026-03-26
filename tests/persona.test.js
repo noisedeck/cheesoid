@@ -61,4 +61,40 @@ rooms:
     const dir = await mkdtemp(join(tmpdir(), 'cheesoid-empty-'))
     await assert.rejects(() => loadPersona(dir), /persona\.yaml/)
   })
+
+  it('validates orchestrator config with anthropic provider and preserves fields', async () => {
+    const dir = await makePersona(`
+name: test-hybrid
+model: claude-haiku-3-5
+orchestrator:
+  provider: anthropic
+  model: claude-opus-4-5
+`)
+    const persona = await loadPersona(dir)
+    assert.equal(persona.config.orchestrator.provider, 'anthropic')
+    assert.equal(persona.config.orchestrator.model, 'claude-opus-4-5')
+  })
+
+  it('validates orchestrator defaults provider to anthropic when not set', async () => {
+    const dir = await makePersona(`
+name: test-hybrid-default
+model: claude-haiku-3-5
+orchestrator:
+  model: claude-opus-4-5
+`)
+    const persona = await loadPersona(dir)
+    assert.equal(persona.config.orchestrator.provider, 'anthropic')
+  })
+
+  it('throws when orchestrator uses openai-compat but missing base_url', async () => {
+    const dir = await makePersona(`
+name: test-hybrid-bad
+model: claude-haiku-3-5
+orchestrator:
+  provider: openai-compat
+  model: gpt-4o
+  api_key: sk-test
+`)
+    await assert.rejects(() => loadPersona(dir), /orchestrator with openai-compat requires base_url/)
+  })
 })
