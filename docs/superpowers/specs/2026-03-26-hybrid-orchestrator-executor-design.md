@@ -172,9 +172,22 @@ The executor has no persistent state. Each call is stateless.
 | Who writes text | Primary model | Orchestrator |
 | Tool_choice | Intent router decides | Orchestrator decides (it emits tool_use or doesn't) |
 | Context per tool call | Full history | Minimal (executor) or none (direct) |
-| Intent routing | Required (open models hallucinate) | Not needed (orchestrator is smart) |
-| Rescue logic | Required | Not needed |
+| Intent routing | Required (open models hallucinate) | Applied to orchestrator if openai-compat |
+| Rescue logic | Required | Applied to orchestrator if openai-compat |
 | Persona in prompt | Every call | Orchestrator calls only |
+
+### Guardrails (Intent Routing + Rescue)
+
+The sonnet-parity layer (intent routing, heuristic classifier, narrated tool call rescue, consecutive tool cap, session-start memory forcing) applies based on the **orchestrator's** provider type, not the execution mode:
+
+- **Orchestrator is Anthropic:** No guardrails needed. Claude handles tool calling natively.
+- **Orchestrator is openai-compat:** Full sonnet-parity layer applies — heuristic fast-path, LLM classifier fallback, rescue logic, consecutive tool cap, hierarchical prompt, thinking round-trip, session-start memory forcing.
+
+In hybrid mode, these guardrails wrap the orchestrator's output. If the orchestrator narrates a tool call instead of emitting a tool_use block, rescue logic extracts it and routes it to the executor. If the orchestrator won't stop calling tools, the consecutive cap forces a text response.
+
+The executor never needs guardrails — it receives `tool_choice: required` with a single tool definition. It either calls the tool or fails. No ambiguity.
+
+This means `runHybridAgent` reuses the existing intent routing and rescue code from `runAgent` — it's the same orchestrator loop, the only difference is where tool_use blocks get executed.
 
 ### Cost Model
 
