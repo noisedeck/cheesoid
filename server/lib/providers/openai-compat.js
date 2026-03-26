@@ -146,22 +146,27 @@ export function createOpenAICompatProvider(config) {
     supportsIntentRouting: true,
 
     async classifyIntent({ model, system, messages, tools }) {
-      const toolNames = tools.map(t => t.name)
-      const lastMsg = messages.filter(m => m.role === 'user').pop()
-      const lastContent = typeof lastMsg?.content === 'string'
-        ? lastMsg.content
-        : Array.isArray(lastMsg?.content)
-          ? lastMsg.content.map(b => b.content || '').join(' ')
-          : ''
+      const toolSummary = tools.map(t => `- ${t.name}: ${t.description || 'no description'}`).join('\n')
+
+      // Detect if the last user message contains tool results (post-tool-call state)
+      const lastUserMsg = messages[messages.length - 1]
+      const hasToolResults = Array.isArray(lastUserMsg?.content) &&
+        lastUserMsg.content.some(b => b.type === 'tool_result')
 
       const classifyPrompt = [
-        'You are an intent classifier. Given a conversation and available tools, determine whether the next response should use a tool or be a plain text reply.',
+        'You are a strict intent classifier for an AI agent. Determine what the agent should do next.',
         '',
-        `Available tools: ${toolNames.join(', ')}`,
+        'Available tools:',
+        toolSummary,
         '',
-        'Respond with ONLY a JSON object, no other text:',
-        '{"action":"tool"} — if the response requires calling one or more tools',
-        '{"action":"text"} — if the response is conversational and needs no tools',
+        'Rules:',
+        '- If the user is asking the agent to DO something (run a command, check status, look something up, take an action), respond: {"action":"tool"}',
+        '- If the user is making conversation (greeting, opinion, acknowledgment, question that needs no data), respond: {"action":"text"}',
+        '- If tool results were just returned and the task needs MORE tool calls to complete, respond: {"action":"tool"}',
+        '- If tool results were just returned and the agent should now summarize or respond to the user, respond: {"action":"text"}',
+        hasToolResults ? '\nIMPORTANT: The most recent message contains tool results. The agent just finished a tool call. Decide whether more tools are needed or if it is time to respond.' : '',
+        '',
+        'Respond with ONLY the JSON object. No explanation, no markdown, no other text.',
       ].join('\n')
 
       // Use the last few messages for context, not the full history
