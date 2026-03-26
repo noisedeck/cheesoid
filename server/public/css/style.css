@@ -245,6 +245,43 @@ main {
   border-left: 2px solid var(--hf-border);
 }
 
+/* Thinking indicator */
+.thinking-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--hf-space-2);
+  color: var(--hf-text-dim);
+  font-size: var(--hf-size-sm);
+  font-style: italic;
+  padding: var(--hf-space-1) 0;
+}
+
+.thinking-indicator .thinking-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.thinking-indicator .thinking-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--hf-radius-full);
+  background: var(--hf-text-dim);
+  animation: thinking-pulse 1.4s ease-in-out infinite;
+}
+
+.thinking-indicator .thinking-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.thinking-indicator .thinking-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes thinking-pulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
 .error { color: var(--hf-red); }
 
 /* Agent messages (visiting agents in the room) */

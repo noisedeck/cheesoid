@@ -21,6 +21,7 @@ let idleEl = null
 let idleBuffer = ''
 let lastSender = null
 let personaLabel = 'Cheesoid'
+let thinkingEl = null
 let sending = false
 let reconnectTimer = null
 const visitorStreams = new Map() // agentName → { element, buffer }
@@ -168,6 +169,7 @@ function handleEvent(e) {
       lastSender = null
       assistantEl = null
       assistantBuffer = ''
+      thinkingEl = null
       idleEl = null
       idleBuffer = ''
       for (const msg of event.messages) {
@@ -219,11 +221,23 @@ function handleEvent(e) {
       if (!event.fromAgent) {
         assistantEl = appendMessage('assistant', '')
         assistantBuffer = ''
+        thinkingEl = document.createElement('div')
+        thinkingEl.className = 'thinking-indicator'
+        thinkingEl.innerHTML = '<span>thinking</span><div class="thinking-dots"><span></span><span></span><span></span></div>'
+        assistantEl.appendChild(thinkingEl)
       }
+      break
+
+    case 'thinking_delta':
+      // Indicator already shown from user_message — nothing extra needed
       break
 
     case 'text_delta':
       if (assistantEl) {
+        if (thinkingEl) {
+          thinkingEl.remove()
+          thinkingEl = null
+        }
         assistantBuffer += event.text
         const body = assistantEl.querySelector('.message-body')
         if (body) body.innerHTML = renderMarkdown(assistantBuffer)
@@ -232,6 +246,10 @@ function handleEvent(e) {
       break
 
     case 'tool_start':
+      if (thinkingEl) {
+        thinkingEl.remove()
+        thinkingEl = null
+      }
       if (event.visiting) {
         const agentName = event.agentName
         if (!visitorStreams.has(agentName)) {
@@ -256,6 +274,10 @@ function handleEvent(e) {
       break
 
     case 'done':
+      if (thinkingEl) {
+        thinkingEl.remove()
+        thinkingEl = null
+      }
       if (assistantEl) {
         for (const tc of assistantEl.querySelectorAll('.tool-call')) tc.remove()
         // Extract thought tags and render as idle thoughts
@@ -324,6 +346,7 @@ function handleEvent(e) {
       messages.innerHTML = ''
       assistantEl = null
       assistantBuffer = ''
+      thinkingEl = null
       lastSender = null
       visitorStreams.clear()
       break
