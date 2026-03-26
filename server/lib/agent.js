@@ -250,6 +250,43 @@ const EXECUTOR_SYSTEM = `You are a tool executor. You receive tool results and d
 - Be concise. Return structured results.`
 
 /**
+ * Call executor streamMessage with fallback chain. Tries executorProvider
+ * with each model in the chain until one succeeds. Falls back to
+ * config.fallbackProviders if the primary provider fails entirely.
+ */
+async function callExecutorWithFallback(config, params, onEvent) {
+  const models = [config.executorModel, ...(config.executorFallbackModels || [])]
+  const providers = [
+    { provider: config.executorProvider, models: models.filter(m => !m.includes(':')) },
+  ]
+
+  // Models with provider prefix (e.g. "claude-haiku-4-5:anthropic") use a different provider
+  for (const m of models) {
+    if (m.includes(':')) {
+      const [model, providerName] = m.split(':')
+      const fallbackProvider = (config.fallbackProviders || {})[providerName]
+      if (fallbackProvider) {
+        providers.push({ provider: fallbackProvider, models: [model] })
+      }
+    }
+  }
+
+  let lastErr
+  for (const { provider, models: providerModels } of providers) {
+    for (const model of providerModels) {
+      try {
+        const result = await provider.streamMessage({ ...params, model }, onEvent)
+        return { result, model }
+      } catch (err) {
+        lastErr = err
+        console.log(`[hybrid] executor ${model} failed: ${err.message}, trying next`)
+      }
+    }
+  }
+  throw lastErr
+}
+
+/**
  * Hybrid agent loop. The orchestrator (smart, expensive model) handles
  * reasoning, persona, and planning. The executor (cheap model) handles
  * the tool-result loop — processing results and deciding if more tools
@@ -404,22 +441,22 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
       const MAX_EXECUTOR_TURNS = 6
 
       while (executorIterations < MAX_EXECUTOR_TURNS) {
-        const execResult = await executor.streamMessage(
-          {
-            model: executorModel,
-            maxTokens: 4096,
-            system: EXECUTOR_SYSTEM,
-            messages: executorMessages,
-            tools: tools.definitions,
-            serverTools: [],
-            thinkingBudget: null,
-          },
-          // Don't broadcast executor thinking — only tool events
-          (event) => {
-            if (event.type === 'tool_start' || event.type === 'tool_result') {
-              onEvent(event)
-            }
-          },
+        const execParams = {
+          maxTokens: 4096,
+          system: EXECUTOR_SYSTEM,
+          messages: executorMessages,
+          tools: tools.definitions,
+          serverTools: [],
+          thinkingBudget: null,
+        }
+        const execOnEvent = (event) => {
+          if (event.type === 'tool_start' || event.type === 'tool_result') {
+            onEvent(event)
+          }
+        }
+
+        const { result: execResult, model: usedModel } = await callExecutorWithFallback(
+          config, execParams, execOnEvent,
         )
 
         executorUsage.input_tokens += execResult.usage.input_tokens
@@ -436,7 +473,7 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
         const execToolCalls = execContent.filter(b => b.type === 'tool_use')
         const execText = execContent.filter(b => b.type === 'text').map(b => b.text).join('')
 
-        console.log(`[hybrid] executor turn ${executorIterations + 1}: ${execResult.usage.input_tokens} in / ${execResult.usage.output_tokens} out | tools=${execToolCalls.length} stop=${execResult.stopReason}`)
+        console.log(`[hybrid] executor turn ${executorIterations + 1} (${usedModel}): ${execResult.usage.input_tokens} in / ${execResult.usage.output_tokens} out | tools=${execToolCalls.length} stop=${execResult.stopReason}`)
 
         // Executor done — no more tool calls
         if (execResult.stopReason !== 'tool_use' || execToolCalls.length === 0) {

@@ -82,6 +82,10 @@ export class Room {
     this.orchestratorProvider = config.orchestrator
       ? getProvider(config.orchestrator)
       : null
+    // Anthropic fallback provider for hybrid executor chain
+    this.anthropicFallbackProvider = this.orchestratorProvider
+      ? getProvider({ provider: 'anthropic' })
+      : null
 
     // Replay recent history into agent context
     const recent = await this.chatLog.recent(MAX_HISTORY)
@@ -325,6 +329,8 @@ export class Room {
         // Hybrid mode: executor provider for tool-result processing
         executorProvider: this.orchestratorProvider ? this.provider : null,
         executorModel: this.orchestratorProvider ? this.persona.config.model : null,
+        executorFallbackModels: this.orchestratorProvider ? (this.persona.config.fallback_models || []) : [],
+        fallbackProviders: this.anthropicFallbackProvider ? { anthropic: this.anthropicFallbackProvider } : {},
       }
 
       let assistantText = ''
@@ -457,6 +463,8 @@ export class Room {
         provider: this.orchestratorProvider || this.provider,
         executorProvider: this.orchestratorProvider ? this.provider : null,
         executorModel: this.orchestratorProvider ? this.persona.config.model : null,
+        executorFallbackModels: this.orchestratorProvider ? (this.persona.config.fallback_models || []) : [],
+        fallbackProviders: this.anthropicFallbackProvider ? { anthropic: this.anthropicFallbackProvider } : {},
       }
 
       // Wrap events as idle thoughts for the UI — broadcast errors must not
