@@ -270,6 +270,13 @@ function handleEvent(e) {
         if (vs) appendTool(vs.element, `${event.name}: ${truncate(JSON.stringify(event.result), 200)}`)
       } else if (assistantEl && !event.idle) {
         appendTool(assistantEl, `${event.name}: ${truncate(JSON.stringify(event.result), 200)}`)
+        // Re-show thinking indicator after tool result — agent is processing
+        if (!thinkingEl) {
+          thinkingEl = document.createElement('div')
+          thinkingEl.className = 'thinking-indicator'
+          thinkingEl.innerHTML = '<span>thinking</span><div class="thinking-dots"><span></span><span></span><span></span></div>'
+          assistantEl.appendChild(thinkingEl)
+        }
       }
       break
 
@@ -546,11 +553,7 @@ function appendMessage(role, text, name, timestamp, fromAgent = false) {
   // Message body
   const body = document.createElement('div')
   body.className = 'message-body'
-  if (role === 'user' && !fromAgent && name !== 'webhook') {
-    body.textContent = text
-  } else {
-    body.innerHTML = renderMarkdown(text)
-  }
+  body.innerHTML = renderMarkdown(text)
   el.appendChild(body)
 
   messages.appendChild(el)
