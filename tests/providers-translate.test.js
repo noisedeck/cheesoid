@@ -91,7 +91,7 @@ describe('translateMessages', () => {
     assert.equal(assistant.tool_calls, undefined)
   })
 
-  it('strips thinking blocks from assistant messages', () => {
+  it('preserves thinking blocks as reasoning preamble in assistant messages', () => {
     const messages = [
       {
         role: 'assistant',
@@ -103,7 +103,38 @@ describe('translateMessages', () => {
     ]
     const result = translateMessages('sys', messages)
     const assistant = result.find(m => m.role === 'assistant')
-    assert.equal(assistant.content, 'The answer.')
+    assert.equal(assistant.content, '[internal reasoning: hmm]\n\nThe answer.')
     assert.equal(assistant.tool_calls, undefined)
+  })
+
+  it('preserves thinking-only messages without text', () => {
+    const messages = [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'deep thought', signature: 'sig' },
+        ],
+      },
+    ]
+    const result = translateMessages('sys', messages)
+    const assistant = result.find(m => m.role === 'assistant')
+    assert.equal(assistant.content, '[internal reasoning: deep thought]')
+  })
+
+  it('accepts array of system messages', () => {
+    const messages = [
+      { role: 'user', content: 'hi' },
+    ]
+    const systemMsgs = [
+      { role: 'system', content: 'Layer 1' },
+      { role: 'system', content: 'Layer 2' },
+    ]
+    const result = translateMessages(systemMsgs, messages)
+    assert.equal(result[0].role, 'system')
+    assert.equal(result[0].content, 'Layer 1')
+    assert.equal(result[1].role, 'system')
+    assert.equal(result[1].content, 'Layer 2')
+    assert.equal(result[2].role, 'user')
+    assert.equal(result[2].content, 'hi')
   })
 })

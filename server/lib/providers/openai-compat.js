@@ -201,8 +201,9 @@ export function createOpenAICompatProvider(config) {
           if (text.includes('"tool"')) return 'required'
           if (text.includes('"text"')) return 'none'
         }
-      } catch {
-        // network error — fall back to auto
+      } catch (err) {
+        const cause = err.cause ? `: ${err.cause.message || err.cause.code || err.cause}` : ''
+        console.log(`[openai-compat] classifier fetch failed${cause}, falling back to auto`)
       }
       return 'auto'
     },
@@ -243,6 +244,7 @@ export function createOpenAICompatProvider(config) {
           const cause = err.cause ? `: ${err.cause.message || err.cause.code || err.cause}` : ''
           lastErr = new Error(`OpenAI-compat fetch failed${cause}`)
           response = null
+          console.log(`[openai-compat] fetch attempt ${attempt + 1}/${MAX_RETRIES} failed${cause}`)
         }
 
         // Retry on network errors and 429/5xx

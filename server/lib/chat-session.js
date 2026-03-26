@@ -7,6 +7,18 @@ import { runAgent } from './agent.js'
 import { getProvider } from './providers/index.js'
 import { RoomClient } from './room-client.js'
 
+function replaceTimestamp(prompt) {
+  const ts = currentTimestamp()
+  if (typeof prompt === 'string') return prompt.replace('{{CURRENT_TIMESTAMP}}', ts)
+  if (Array.isArray(prompt)) {
+    return prompt.map(msg => ({
+      ...msg,
+      content: msg.content.replace('{{CURRENT_TIMESTAMP}}', ts),
+    }))
+  }
+  return prompt
+}
+
 const IDLE_THOUGHT_INTERVAL = 30 * 60 * 1000 // 30 minutes, doubles each time
 const MAX_IDLE_INTERVAL = 7 * 24 * 60 * 60 * 1000 // 7 days cap
 const MAX_HISTORY = 50
@@ -51,6 +63,7 @@ export class Room {
     this._idleInterval = IDLE_THOUGHT_INTERVAL // backs off with consecutive idle thoughts
     this._heartbeatTimer = null
     this._destroyed = false
+    this._sessionStartHandled = false
 
   }
 
@@ -322,7 +335,16 @@ export class Room {
         }
       }
 
-      const prompt = this.systemPrompt.replace('{{CURRENT_TIMESTAMP}}', currentTimestamp())
+      // Session start: force open models to read memory/state before first response
+      if (!this._sessionStartHandled && this.persona.config.provider === 'openai-compat') {
+        this._sessionStartHandled = true
+        this.messages.push({
+          role: 'user',
+          content: '[system: This is your first interaction this session. You MUST call get_state and read_memory on MEMORY.md before responding. Do this now — do not skip this step.]',
+        })
+      }
+
+      const prompt = replaceTimestamp(this.systemPrompt)
       const result = await runAgent(prompt, this.messages, this.tools, config, onEvent)
       this.messages = result.messages
 
@@ -441,7 +463,7 @@ export class Room {
         }
       }
 
-      const prompt = this.systemPrompt.replace('{{CURRENT_TIMESTAMP}}', currentTimestamp())
+      const prompt = replaceTimestamp(this.systemPrompt)
       const result = await runAgent(prompt, idleMessages, this.tools, config, onEvent)
       this.messages = result.messages
       if (idleText) {
@@ -527,6 +549,7 @@ export class Room {
     this._messageQueue = []
     this._pendingRoom = null
     this.systemPrompt = null
+    this._sessionStartHandled = false
     this.broadcast({ type: 'reset' })
   }
 

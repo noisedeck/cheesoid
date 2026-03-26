@@ -22,8 +22,8 @@ chat:
 # provider: openai-compat
 # base_url: ${OPENAI_COMPAT_BASE_URL}
 # api_key: ${OPENAI_COMPAT_API_KEY}
-# model: your-model-name
-## Note: server_tools (web_search) are Anthropic-only and will be skipped.
+# model: AltFast/DeepSeek-V3.1
+## Note: server_tools (web_search) are Anthropic-only and will be skipped on openai-compat.
 ## Set OPENAI_COMPAT_BASE_URL and OPENAI_COMPAT_API_KEY in your environment.
 
 ## Uncomment if running behind an auth proxy (e.g. groundsquirrel):

@@ -1,4 +1,29 @@
 /**
+ * Heuristic intent classifier — determines tool vs text without an API call.
+ * Returns 'required', 'none', or 'uncertain' (needs LLM classification).
+ */
+const ACTION_PATTERNS = /\b(run|check|execute|start|stop|restart|deploy|show|look up|find|search|fetch|get|list|read|write|create|delete|update|send|post|curl|ssh|grep|approve|reject|moderate|inspect)\b/i
+const CONVERSATION_PATTERNS = /^(thanks|thank you|ok|okay|lol|haha|nice|cool|great|good|got it|understood|sure|yep|yeah|yes|no|nah|hmm|interesting|wow|huh|right|true|fair|agreed)\b/i
+const QUESTION_ABOUT_AGENT = /\b(how are you|what do you think|who are you|what are you|how do you feel|tell me about yourself)\b/i
+
+export function classifyIntentHeuristic(lastUserContent) {
+  if (!lastUserContent || typeof lastUserContent !== 'string') return 'uncertain'
+  const trimmed = lastUserContent.trim()
+  if (!trimmed) return 'uncertain'
+
+  // Short acknowledgments → text
+  if (trimmed.length < 20 && CONVERSATION_PATTERNS.test(trimmed)) return 'none'
+
+  // Questions about the agent → text
+  if (QUESTION_ABOUT_AGENT.test(trimmed)) return 'none'
+
+  // Action verbs → tool
+  if (ACTION_PATTERNS.test(trimmed)) return 'required'
+
+  return 'uncertain'
+}
+
+/**
  * Attempt to extract a tool call from text that was narrated instead of
  * being emitted as a structured tool_calls response. Returns a tool_use
  * block if found, null otherwise.
@@ -53,6 +78,21 @@ export function _rescueNarratedToolCall(text, toolDefs) {
 }
 
 /**
+ * Extract the text content of the last user message (for heuristic classification).
+ */
+function getLastUserText(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i]
+    if (msg.role !== 'user') continue
+    if (typeof msg.content === 'string') return msg.content
+    // tool_result arrays aren't user text
+    if (Array.isArray(msg.content) && msg.content.some(b => b.type === 'tool_result')) continue
+    return null
+  }
+  return null
+}
+
+/**
  * Run the agent loop. Calls onEvent with SSE events as it goes.
  * Delegates streaming to the provider (Anthropic, OpenAI-compat, etc.).
  * Handles tool execution and message assembly.
@@ -63,29 +103,51 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
   let iterations = 0
   const maxTurns = config.maxTurns || 20
 
+  const MAX_CONSECUTIVE_TOOLS = 8
+  let consecutiveToolCalls = 0
+  let rescueCount = 0
+  let totalToolTurns = 0
+  let rescueFailed = false // true once rescue rate is too high
+
   while (iterations < maxTurns) {
     // Intent routing for providers that support it (open models).
-    // Classifies whether the next turn needs tools or is conversational,
-    // then forces the appropriate mode to prevent tool-use hallucination.
     let toolChoice = undefined
     if (provider.supportsIntentRouting && tools.definitions.length > 0) {
-      // Fast path: after tool results, let the model decide freely (auto).
-      // It needs to either call more tools or summarize — both are valid.
       const lastMsg = messages[messages.length - 1]
       const isPostToolResult = Array.isArray(lastMsg?.content) &&
         lastMsg.content.some(b => b.type === 'tool_result')
 
-      if (isPostToolResult) {
+      if (rescueFailed) {
+        // Model can't do structured tool calling — text only for rest of run
+        toolChoice = 'none'
+      } else if (consecutiveToolCalls >= MAX_CONSECUTIVE_TOOLS) {
+        toolChoice = 'none'
+        console.log(`[intent-router] toolChoice=none (forced after ${consecutiveToolCalls} consecutive tool calls)`)
+      } else if (isPostToolResult) {
         toolChoice = 'auto'
       } else {
-        toolChoice = await provider.classifyIntent({
-          model: config.model,
-          system: systemPrompt,
-          messages,
-          tools: tools.definitions,
-        })
+        // Tier 1: Heuristic fast-path
+        const lastUserText = getLastUserText(messages)
+        const heuristic = classifyIntentHeuristic(lastUserText)
+
+        if (heuristic !== 'uncertain') {
+          toolChoice = heuristic
+          console.log(`[intent-router] toolChoice=${toolChoice} (heuristic) text="${(lastUserText || '').slice(0, 40)}"`)
+        } else {
+          // Tier 2: LLM classifier
+          toolChoice = await provider.classifyIntent({
+            model: config.model,
+            system: systemPrompt,
+            messages,
+            tools: tools.definitions,
+          })
+          console.log(`[intent-router] toolChoice=${toolChoice} (llm-classifier)`)
+        }
       }
-      console.log(`[intent-router] toolChoice=${toolChoice} postToolResult=${isPostToolResult}`)
+
+      if (!rescueFailed && toolChoice !== undefined) {
+        console.log(`[intent-router] final=${toolChoice} postToolResult=${isPostToolResult} consecutiveTools=${consecutiveToolCalls}`)
+      }
     }
 
     const result = await provider.streamMessage(
@@ -106,10 +168,8 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
     totalUsage.input_tokens += usage.input_tokens
     totalUsage.output_tokens += usage.output_tokens
 
-    // Rescue narrated tool calls: if the model wrote a tool call as text
-    // (e.g. {"name":"bash","arguments":{...}}) instead of using the structured
-    // tool_calls API, extract it and convert to a real tool_use block.
-    if (stopReason !== 'tool_use' && provider.supportsIntentRouting) {
+    // Rescue narrated tool calls — only when router didn't explicitly say 'none'
+    if (stopReason !== 'tool_use' && provider.supportsIntentRouting && toolChoice !== 'none' && !rescueFailed) {
       const textBlock = contentBlocks.find(b => b.type === 'text')
       if (textBlock) {
         const rescued = _rescueNarratedToolCall(textBlock.text, tools.definitions)
@@ -118,6 +178,14 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
           contentBlocks.push(rescued)
           stopReason = 'tool_use'
           onEvent({ type: 'tool_start', name: rescued.name })
+          rescueCount++
+          console.log(`[intent-router] rescued narrated tool call: ${rescued.name} (rescue #${rescueCount})`)
+
+          // Check rescue rate — if too high, model can't do tool calling
+          if (totalToolTurns >= 4 && rescueCount / totalToolTurns > 0.5) {
+            console.log(`[intent-router] rescue rate ${rescueCount}/${totalToolTurns} > 50% — disabling tools for rest of run`)
+            rescueFailed = true
+          }
         }
       }
     }
@@ -137,10 +205,14 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
     messages.push({ role: 'assistant', content: assistantContent })
 
     // If no tool use, we're done
-    if (stopReason !== 'tool_use') break
+    if (stopReason !== 'tool_use') {
+      consecutiveToolCalls = 0
+      break
+    }
+    consecutiveToolCalls++
+    totalToolTurns++
 
-    // Execute tools — always produce a tool_result for every tool_use,
-    // even on error, to keep message history valid for the API
+    // Execute tools
     const toolResults = []
     for (const block of assistantContent.filter(b => b.type === 'tool_use')) {
       let result
@@ -157,7 +229,18 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
       })
     }
 
+    // Inject correction feedback after rescue — append to tool results to avoid consecutive user messages
+    const wasRescued = contentBlocks.some(b => b.type === 'tool_use' && b.id?.startsWith('toolu_rescued_'))
+    if (wasRescued && provider.supportsIntentRouting) {
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: 'system_correction',
+        content: '[system: You narrated a tool call instead of using function calling. The call was executed, but you must use the function calling API directly.]',
+      })
+    }
+
     messages.push({ role: 'user', content: toolResults })
+
     iterations++
   }
 

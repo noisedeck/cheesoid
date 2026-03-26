@@ -18,10 +18,20 @@ export function translateToolDefs(anthropicTools) {
 
 /**
  * Convert Anthropic-format conversation history to OpenAI message format.
- * Prepends system prompt as a system message.
+ * System prompt can be a string (single system message) or an array of
+ * {role: 'system', content: '...'} objects (hierarchical multi-message).
  */
 export function translateMessages(systemPrompt, messages) {
-  const result = [{ role: 'system', content: systemPrompt }]
+  const result = []
+
+  // System prompt: string → single message, array → multiple system messages
+  if (Array.isArray(systemPrompt)) {
+    for (const msg of systemPrompt) {
+      result.push({ role: 'system', content: msg.content || msg })
+    }
+  } else {
+    result.push({ role: 'system', content: systemPrompt })
+  }
 
   for (const msg of messages) {
     if (msg.role === 'user') {
@@ -45,6 +55,7 @@ export function translateMessages(systemPrompt, messages) {
       } else if (Array.isArray(msg.content)) {
         const textParts = []
         const toolCalls = []
+        let reasoning = ''
 
         for (const block of msg.content) {
           if (block.type === 'text') {
@@ -58,11 +69,21 @@ export function translateMessages(systemPrompt, messages) {
                 arguments: JSON.stringify(block.input),
               },
             })
+          } else if (block.type === 'thinking' && block.thinking) {
+            // Preserve reasoning for round-trip — model sees its own chain of thought
+            reasoning = block.thinking
           }
-          // Skip: thinking, server_tool_use, web_search_tool_result, signature
+          // Skip: server_tool_use, web_search_tool_result, signature
         }
 
-        const assistantMsg = { role: 'assistant', content: textParts.join('') || null }
+        // Build assistant content with reasoning preamble if present
+        let content = textParts.join('') || null
+        if (reasoning) {
+          const preamble = `[internal reasoning: ${reasoning}]`
+          content = content ? `${preamble}\n\n${content}` : preamble
+        }
+
+        const assistantMsg = { role: 'assistant', content }
         if (toolCalls.length > 0) {
           assistantMsg.tool_calls = toolCalls
         }

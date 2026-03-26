@@ -14,8 +14,38 @@ export async function loadPersona(personaDir) {
 
   const config = yaml.load(raw)
   resolveEnvVars(config)
+
+  // Validate and degrade gracefully for openai-compat
+  if (config.provider === 'openai-compat') {
+    validateOpenAICompat(config)
+  }
+
   const plugins = await loadPlugins(config.plugins || [])
   return { dir: personaDir, config, plugins }
+}
+
+/**
+ * Validate persona config for openai-compat provider.
+ * Warns about unsupported features and sets approximation flags.
+ */
+function validateOpenAICompat(config) {
+  const name = config.name || 'unknown'
+  config._degradationNotices = []
+
+  // thinking_budget: approximate via prompt
+  if (config.chat?.thinking_budget) {
+    console.log(`[${name}] WARN: thinking_budget (${config.chat.thinking_budget}) approximated via prompt — native thinking not available with openai-compat`)
+    config._approximateThinking = true
+  }
+
+  // server_tools: not available
+  if (config.server_tools && config.server_tools.length > 0) {
+    for (const tool of config.server_tools) {
+      const toolName = tool.name || tool.type || 'unknown'
+      console.log(`[${name}] WARN: server_tool ${toolName} not available with openai-compat — added notice to prompt`)
+      config._degradationNotices.push(`- ${toolName} is not available with your current provider. Do not attempt to use it.`)
+    }
+  }
 }
 
 function resolveEnvVars(obj) {
