@@ -84,6 +84,9 @@ export class Room {
     if (recent.length > 0) {
       this.messages.push({ role: 'user', content: '--- PREVIOUS SESSION TRANSCRIPT (for continuity — not a live conversation) ---' })
       for (const entry of recent) {
+        // Skip accumulated welcome messages from previous restarts
+        if (entry.type === 'system' && entry.text?.startsWith('Welcome to ')) continue
+
         const ts = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '??:??'
         if (entry.type === 'assistant_message' || entry.type === 'idle_thought') {
           this.messages.push({ role: 'assistant', content: entry.text })
@@ -99,10 +102,9 @@ export class Room {
       console.log(`[${config.name}] Replayed ${recent.length} history entries`)
     }
 
-    // Announce startup
+    // Announce startup — broadcast to UI only, don't persist to chat log
+    // (prevents welcome messages from accumulating across restarts)
     const startupMsg = `Welcome to ${config.display_name}'s office.`
-    this.messages.push({ role: 'user', content: `[${this._timestamp()}] * ${startupMsg}` })
-    this.recordHistory({ type: 'system', text: startupMsg })
     this.broadcast({ type: 'system', text: startupMsg })
 
     // Connect to configured remote rooms
