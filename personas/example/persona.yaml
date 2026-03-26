@@ -26,6 +26,15 @@ chat:
 ## Note: server_tools (web_search) are Anthropic-only and will be skipped on openai-compat.
 ## Set OPENAI_COMPAT_BASE_URL and OPENAI_COMPAT_API_KEY in your environment.
 
+## Uncomment to use hybrid mode (smart orchestrator + cheap executor):
+# orchestrator:
+#   provider: anthropic
+#   model: claude-sonnet-4-6
+## When orchestrator is set, the main provider/model becomes the executor.
+## The orchestrator handles reasoning and persona; tools execute directly.
+## Both orchestrator and executor are swappable — either can be anthropic
+## or openai-compat.
+
 ## Uncomment if running behind an auth proxy (e.g. groundsquirrel):
 # auth_proxy: true
 
