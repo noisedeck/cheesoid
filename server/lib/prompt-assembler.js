@@ -39,6 +39,16 @@ You have tools available via function calling. You MUST use them correctly:
 - **Do not assume tool outputs.** You do not know what a command will return until you run it.
 - **One action at a time.** Call a tool, wait for the result, then decide what to do next.`
 
+const TOOL_DISCIPLINE_HYBRID = `## Tool Use — CRITICAL
+
+You have tools available via function calling. You MUST use them correctly:
+
+- **NEVER narrate or describe tool use in your text response.** That is hallucination.
+- **ALWAYS use the actual function calling mechanism** to invoke tools.
+- **Do not assume tool outputs.** You do not know what a command will return until you run it.
+- **BATCH independent tool calls.** When you need multiple pieces of data that don't depend on each other, emit ALL the tool calls in a single response. For example, if you need to check notifications AND check the timeline AND check disk usage, emit all three tool calls at once — do not call them one at a time. This is critical for efficiency.
+- **Only sequence tool calls when one depends on another's result.** If you need the output of tool A to construct the input for tool B, call A first, then call B after seeing the result. But if A and B are independent, call them together.`
+
 const TAIL_REINFORCEMENT = `REMINDERS: Use tools via function calling — never narrate tool use in text. Do not fabricate data — verify through tools. Do not take destructive actions without confirmation. Stay in character.`
 
 const SOURCE_TRUST_HIERARCHY = `## Source Trust Hierarchy
@@ -71,6 +81,7 @@ export function currentTimestamp() {
  */
 export async function assemblePrompt(personaDir, config, plugins = []) {
   const isOpenAICompat = config.provider === 'openai-compat'
+  const isHybrid = !!config.orchestrator
 
   // Collect raw sections first, then structure by provider
 
@@ -183,7 +194,8 @@ export async function assemblePrompt(personaDir, config, plugins = []) {
 
   if (isOpenAICompat) {
     // Layer 1: Constitutional — behavioral base + tool discipline
-    const layer1Parts = [AGENT_BEHAVIORAL_BASE, TOOL_DISCIPLINE]
+    const toolDiscipline = isHybrid ? TOOL_DISCIPLINE_HYBRID : TOOL_DISCIPLINE
+    const layer1Parts = [AGENT_BEHAVIORAL_BASE, toolDiscipline]
     // Thinking approximation if configured
     if (config._approximateThinking) {
       layer1Parts.push(`## Reasoning\nThink step by step before responding. Lay out your reasoning internally before acting. Consider edge cases and potential issues before executing.`)
@@ -213,7 +225,7 @@ export async function assemblePrompt(personaDir, config, plugins = []) {
     ]
   }
 
-  // Anthropic: single joined string (unchanged behavior)
+  // Anthropic: single joined string (unchanged behavior for single-model)
   const sections = []
   if (config.display_name) {
     sections.push(`Your name is ${config.display_name}.`)
@@ -222,6 +234,10 @@ export async function assemblePrompt(personaDir, config, plugins = []) {
   if (soul) sections.push(soul)
   if (systemPromptContent) sections.push(systemPromptContent)
   sections.push(...operationalSections)
+  // In hybrid mode, inject batching discipline even for Anthropic orchestrator
+  if (isHybrid) {
+    sections.push(TOOL_DISCIPLINE_HYBRID)
+  }
   sections.push(SOURCE_TRUST_HIERARCHY)
   sections.push(CHAT_HISTORY)
   sections.push(...contextSections)
