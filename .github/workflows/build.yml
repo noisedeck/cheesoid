@@ -14,11 +14,18 @@ jobs:
       - name: Login to self-hosted registry
         run: echo "${{ secrets.REGISTRY_PASS }}" | docker login registry.noisefactor.io -u "${{ secrets.REGISTRY_USER }}" --password-stdin
 
+      - name: Set deploy timestamp
+        id: meta
+        run: echo "deploy_date=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
+          build-args: |
+            GIT_HASH=${{ github.sha }}
+            DEPLOY_DATE=${{ steps.meta.outputs.deploy_date }}
           tags: |
             registry.noisefactor.io/cheesoid:latest
             registry.noisefactor.io/cheesoid:${{ github.sha }}

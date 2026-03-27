@@ -22,6 +22,11 @@ RUN npm ci --production
 
 COPY . .
 
+# Deployment metadata — injected at build time by CI
+ARG GIT_HASH=LOCAL
+ARG DEPLOY_DATE=0
+RUN printf '{\n  "git_hash": "%s",\n  "date": %s\n}\n' "$GIT_HASH" "$DEPLOY_DATE" > server/public/deployment-meta.json
+
 ENV PERSONA=example
 ENV PORT=3000
 EXPOSE 3000
