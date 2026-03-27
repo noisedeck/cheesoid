@@ -8,40 +8,44 @@ import { join } from 'node:path'
  * Fields support: numbers, '*', comma-separated lists, and step values (star/N).
  */
 export class WakeupScheduler {
-  constructor(persona, onWakeup) {
+  constructor(persona, wakeupConfig, onWakeup) {
     this._persona = persona
+    this._config = wakeupConfig
     this._onWakeup = onWakeup
+    this._label = wakeupConfig.name
+      ? `${persona.config.name}/${wakeupConfig.name}`
+      : persona.config.name
     this._timer = null
     this._destroyed = false
   }
 
   async start() {
-    const config = this._persona.config.wakeup
+    const config = this._config
     if (!config || config.mode !== 'cron' || !config.schedule) return
 
     // Pre-load the prompt to fail fast if it's missing
     const promptPath = config.prompt
     if (!promptPath) {
-      console.error(`[${this._persona.config.name}] Wakeup configured but no prompt path`)
+      console.error(`[${this._label}] Wakeup configured but no prompt path`)
       return
     }
 
     try {
       await readFile(join(this._persona.dir, promptPath), 'utf8')
     } catch (err) {
-      console.error(`[${this._persona.config.name}] Wakeup prompt not found: ${promptPath}`)
+      console.error(`[${this._label}] Wakeup prompt not found: ${promptPath}`)
       return
     }
 
     this._schedule = parseCron(config.schedule)
     if (!this._schedule) {
-      console.error(`[${this._persona.config.name}] Invalid cron schedule: ${config.schedule}`)
+      console.error(`[${this._label}] Invalid cron schedule: ${config.schedule}`)
       return
     }
 
     this._promptPath = join(this._persona.dir, promptPath)
     this._scheduleNext()
-    console.log(`[${this._persona.config.name}] Wakeup scheduled: ${config.schedule}`)
+    console.log(`[${this._label}] Wakeup scheduled: ${config.schedule}`)
   }
 
   _scheduleNext() {
@@ -51,7 +55,7 @@ export class WakeupScheduler {
     const next = nextMatch(this._schedule, now)
     const delay = next.getTime() - now.getTime()
 
-    console.log(`[${this._persona.config.name}] Next wakeup: ${next.toISOString()} (${Math.round(delay / 60000)}m)`)
+    console.log(`[${this._label}] Next wakeup: ${next.toISOString()} (${Math.round(delay / 60000)}m)`)
 
     this._timer = setTimeout(async () => {
       this._timer = null
@@ -61,7 +65,7 @@ export class WakeupScheduler {
         const prompt = await readFile(this._promptPath, 'utf8')
         await this._onWakeup(prompt)
       } catch (err) {
-        console.error(`[${this._persona.config.name}] Wakeup error:`, err.message)
+        console.error(`[${this._label}] Wakeup error:`, err.message)
       }
 
       this._scheduleNext()

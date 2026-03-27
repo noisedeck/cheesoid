@@ -139,13 +139,19 @@ export class Room {
 
     this._startIdleTimer()
 
-    // Start wakeup scheduler if configured
-    this._wakeupScheduler = new WakeupScheduler(this.persona, async (prompt) => {
-      const ownerName = this.persona.config.display_name || this.persona.config.name
-      const message = `[wakeup round] Scheduled wakeup for ${ownerName}.\n\n${prompt}`
-      await this.sendMessage('wakeup', message)
+    // Start wakeup schedulers if configured
+    const wakeupConfigs = this.persona.config.wakeups
+      || (this.persona.config.wakeup ? [this.persona.config.wakeup] : [])
+    this._wakeupSchedulers = wakeupConfigs.map(wakeupConfig => {
+      const scheduler = new WakeupScheduler(this.persona, wakeupConfig, async (prompt) => {
+        const ownerName = this.persona.config.display_name || this.persona.config.name
+        const label = wakeupConfig.name ? `${ownerName} (${wakeupConfig.name})` : ownerName
+        const message = `[wakeup round] Scheduled wakeup for ${label}.\n\n${prompt}`
+        await this.sendMessage('wakeup', message)
+      })
+      scheduler.start()
+      return scheduler
     })
-    this._wakeupScheduler.start()
   }
 
   // Register an SSE client for broadcast
@@ -635,7 +641,7 @@ export class Room {
     this._destroyed = true
     this._clearIdleTimer()
     this._stopHeartbeat()
-    if (this._wakeupScheduler) this._wakeupScheduler.destroy()
+    if (this._wakeupSchedulers) this._wakeupSchedulers.forEach(s => s.destroy())
     for (const client of this.roomClients.values()) {
       client.destroy()
     }
