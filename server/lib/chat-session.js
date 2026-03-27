@@ -6,6 +6,7 @@ import { loadTools } from './tools.js'
 import { runAgent, runHybridAgent } from './agent.js'
 import { ProviderRegistry } from './providers/index.js'
 import { RoomClient } from './room-client.js'
+import { WakeupScheduler } from './wakeup.js'
 
 function replaceTimestamp(prompt) {
   const ts = currentTimestamp()
@@ -137,6 +138,14 @@ export class Room {
     }
 
     this._startIdleTimer()
+
+    // Start wakeup scheduler if configured
+    this._wakeupScheduler = new WakeupScheduler(this.persona, async (prompt) => {
+      const ownerName = this.persona.config.display_name || this.persona.config.name
+      const message = `[wakeup round] Scheduled wakeup for ${ownerName}.\n\n${prompt}`
+      await this.sendMessage('wakeup', message)
+    })
+    this._wakeupScheduler.start()
   }
 
   // Register an SSE client for broadcast
@@ -210,7 +219,7 @@ export class Room {
 
   addAgentMessage(name, text) {
     const taggedMessage = `[${this._timestamp()}][home/${name}${this._domainSuffix('home')}]: ${text}`
-    this.messages.push({ role: 'user', content: taggedMessage })
+    this._safeAppendMessage({ role: 'user', content: taggedMessage })
     this.broadcast({ type: 'user_message', name, text, fromAgent: true })
     this.recordHistory({ type: 'user_message', name, text })
     this.lastActivity = Date.now()
@@ -221,7 +230,7 @@ export class Room {
 
   addBackchannelMessage(name, text) {
     const taggedMessage = `[${this._timestamp()}][backchannel/${name}${this._domainSuffix('home')}]: ${text}`
-    this.messages.push({ role: 'user', content: taggedMessage })
+    this._safeAppendMessage({ role: 'user', content: taggedMessage })
     // No broadcast, no history — agents only
   }
 
@@ -626,6 +635,7 @@ export class Room {
     this._destroyed = true
     this._clearIdleTimer()
     this._stopHeartbeat()
+    if (this._wakeupScheduler) this._wakeupScheduler.destroy()
     for (const client of this.roomClients.values()) {
       client.destroy()
     }
