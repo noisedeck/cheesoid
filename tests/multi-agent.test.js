@@ -247,4 +247,24 @@ describe('Multi-agent room', () => {
     host.room._autoNudgeMentionedAgents('Hey random person, what do you think?', '')
     assert.equal(backchannelSends.length, 0, 'should not nudge unknown names')
   })
+
+  it('auto-nudges mentioned agent via room client when visiting', async () => {
+    const visitorDir = await createTestPersona('visitor-nudge', 'VisitorNudge', {
+      rooms: [{ name: 'brad', url: 'http://localhost:4099', secret: 's', domain: 'brad.test' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4012)
+    servers.push(visitor)
+
+    const bcSends = []
+    visitor.room.roomClients.set('brad', {
+      sendBackchannel: (text, opts) => { bcSends.push({ text, ...opts }) },
+      sendMessage: () => {},
+      destroy: () => {},
+    })
+
+    visitor.room._pendingRoom = 'brad'
+    visitor.room._autoNudgeMentionedAgents('Hey brad, what do you think?', '')
+    assert.equal(bcSends.length, 1)
+    assert.ok(bcSends[0].text.includes('brad'))
+  })
 })

@@ -248,14 +248,27 @@ export class Room {
   _autoNudgeMentionedAgents(publicText, backchannelText) {
     if (!publicText) return
 
-    const knownAgents = (this.persona.config.agents || []).map(a => a.name)
-    if (knownAgents.length === 0) return
+    // Home room: nudge visiting agents (config.agents)
+    if (this._pendingRoom === 'home') {
+      const knownAgents = (this.persona.config.agents || []).map(a => a.name)
+      for (const agentName of knownAgents) {
+        const mentionPattern = new RegExp(`\\b${agentName}\\b`, 'i')
+        if (!mentionPattern.test(publicText)) continue
+        if (backchannelText && mentionPattern.test(backchannelText)) continue
+        this.addBackchannelMessage('system', `Hey ${agentName}, you were just addressed in chat.`)
+      }
+    }
 
-    for (const agentName of knownAgents) {
-      const mentionPattern = new RegExp(`\\b${agentName}\\b`, 'i')
-      if (!mentionPattern.test(publicText)) continue
-      if (backchannelText && mentionPattern.test(backchannelText)) continue
-      this.addBackchannelMessage('system', `Hey ${agentName}, you were just addressed in chat.`)
+    // Remote room: nudge the room's agent via room client
+    if (this._pendingRoom && this._pendingRoom !== 'home') {
+      const roomName = this._pendingRoom
+      const client = this.roomClients.get(roomName)
+      if (!client) return
+
+      const mentionPattern = new RegExp(`\\b${roomName}\\b`, 'i')
+      if (!mentionPattern.test(publicText)) return
+      if (backchannelText && mentionPattern.test(backchannelText)) return
+      client.sendBackchannel(`Hey ${roomName}, you were just addressed in chat.`)
     }
   }
 
@@ -467,6 +480,8 @@ export class Room {
           this.broadcast({ type: 'idle_done' })
           this.recordHistory({ type: 'idle_thought', text: thoughtText })
         }
+        // Auto-nudge agents mentioned in public text
+        this._autoNudgeMentionedAgents(publicText, backchannelText)
       }
     } catch (err) {
       if (this._pendingRoom === 'home') {
