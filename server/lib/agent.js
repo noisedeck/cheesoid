@@ -241,8 +241,54 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
     iterations++
   }
 
+  // If the model ended with no text after tool results, make one more call
+  // with tools disabled so it summarizes in its own voice.
+  await _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsage, onEvent)
+
   onEvent({ type: 'done', usage: totalUsage })
   return { messages, usage: totalUsage }
+}
+
+/**
+ * If the final assistant message has no text and the previous message was
+ * tool results, make one more API call with tools disabled so the model
+ * provides a followup in its own voice.
+ */
+async function _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsage, onEvent) {
+  const lastAssistant = messages[messages.length - 1]
+  if (lastAssistant?.role !== 'assistant') return
+
+  const hasText = Array.isArray(lastAssistant.content) &&
+    lastAssistant.content.some(b => b.type === 'text' && b.text?.trim())
+  if (hasText) return
+
+  const prevMsg = messages[messages.length - 2]
+  const isPostToolResult = Array.isArray(prevMsg?.content) &&
+    prevMsg.content.some(b => b.type === 'tool_result')
+  if (!isPostToolResult) return
+
+  console.log(`[agent] empty response after tool use — nudging orchestrator for followup`)
+
+  // Remove the empty assistant message to maintain valid alternation
+  messages.pop()
+
+  const result = await provider.streamMessage(
+    {
+      model: config.model,
+      maxTokens: 4096,
+      system: systemPrompt,
+      messages,
+      tools: [],
+      serverTools: [],
+      thinkingBudget: null,
+    },
+    onEvent,
+  )
+
+  totalUsage.input_tokens += result.usage.input_tokens
+  totalUsage.output_tokens += result.usage.output_tokens
+
+  messages.push({ role: 'assistant', content: result.contentBlocks })
 }
 
 /**
@@ -574,6 +620,10 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     messages.push({ role: 'user', content: toolResults })
     iterations++
   }
+
+  // If the orchestrator ended with no text after tool results, make one more call
+  // with tools disabled so it summarizes in its own voice.
+  await _nudgeIfEmpty(messages, orchestrator, config, systemPrompt, totalUsage, onEvent)
 
   console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | tools: ${totalToolTurns}`)
   onEvent({ type: 'done', usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens } })
