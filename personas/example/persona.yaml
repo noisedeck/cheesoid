@@ -61,6 +61,7 @@ chat:
 # rooms:
 #   - url: http://other-cheesoid:3000
 #     name: other-room
+#     domain: other-room.example.com
 #     secret: ${ROOM_SECRET_OTHER}
 
 memory:
