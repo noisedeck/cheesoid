@@ -286,9 +286,11 @@ function repairToolUseGaps(messages) {
   }
 }
 
-const EXECUTOR_SYSTEM = `You are a tool executor. You receive tool results and may need to call follow-up tools.
+const EXECUTOR_SYSTEM = `You are a tool executor for an English-language business application. You receive tool results and may need to call follow-up tools.
+- Respond ONLY in English.
 - If a result contains data needed for an obvious next step, call that tool.
 - If results are complete, respond with ONLY the word "done".
+- Do NOT generate content, commentary, or text beyond tool calls and "done".
 - Do NOT explore, speculate, or call tools out of curiosity.
 - Maximum 2 follow-up tool calls, then you MUST respond "done".`
 
