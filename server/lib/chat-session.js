@@ -65,6 +65,25 @@ export class Room {
     this._destroyed = false
     this._sessionStartHandled = false
 
+    // Venue awareness: derive domain from office_url and room configs
+    const officeUrl = persona.config.office_url
+    if (officeUrl) {
+      try {
+        const parsed = new URL(officeUrl)
+        this.homeDomain = parsed.hostname
+      } catch {
+        this.homeDomain = null
+      }
+    } else {
+      this.homeDomain = null
+    }
+    this.roomDomains = new Map()
+    for (const roomConfig of persona.config.rooms || []) {
+      if (roomConfig.domain) {
+        this.roomDomains.set(roomConfig.name, roomConfig.domain)
+      }
+    }
+
   }
 
   async initialize() {
@@ -184,8 +203,13 @@ export class Room {
     return `${h}:${m}`
   }
 
+  _domainSuffix(room) {
+    const domain = room === 'home' ? this.homeDomain : this.roomDomains.get(room)
+    return domain ? `@${domain}` : ''
+  }
+
   addAgentMessage(name, text) {
-    const taggedMessage = `[${this._timestamp()}][home/${name}]: ${text}`
+    const taggedMessage = `[${this._timestamp()}][home/${name}${this._domainSuffix('home')}]: ${text}`
     this.messages.push({ role: 'user', content: taggedMessage })
     this.broadcast({ type: 'user_message', name, text, fromAgent: true })
     this.recordHistory({ type: 'user_message', name, text })
@@ -196,7 +220,7 @@ export class Room {
   }
 
   addBackchannelMessage(name, text) {
-    const taggedMessage = `[${this._timestamp()}][backchannel/${name}]: ${text}`
+    const taggedMessage = `[${this._timestamp()}][backchannel/${name}${this._domainSuffix('home')}]: ${text}`
     this.messages.push({ role: 'user', content: taggedMessage })
     // No broadcast, no history — agents only
   }
@@ -233,21 +257,22 @@ export class Room {
   }
 
   _handleRemoteEvent(event) {
+    const ds = this._domainSuffix(event.room)
     if (event.type === 'user_message') {
       if (event.scrollback) {
         // Historical context from remote room — don't trigger agent
-        const tag = `[${event.room}/${event.name}]`
+        const tag = `[${event.room}/${event.name}${ds}]`
         this._safeAppendMessage({ role: 'user', content: `${tag}: ${event.text}` })
       } else {
         this._processMessage(event.room, event.name, event.text)
       }
     } else if (event.type === 'assistant_message') {
       // Another room's agent responded — add context only, don't trigger
-      const tag = `[${event.room}/assistant]`
+      const tag = `[${event.room}/assistant${ds}]`
       this._safeAppendMessage({ role: 'user', content: `${tag}: ${event.text}` })
     } else if (event.type === 'backchannel') {
       // Agent-only coordination message — add to conversation log, no UI
-      const tag = `[${this._timestamp()}][backchannel/${event.room}/${event.name}]`
+      const tag = `[${this._timestamp()}][backchannel/${event.room}/${event.name}${ds}]`
       this._safeAppendMessage({ role: 'user', content: `${tag}: ${event.text}` })
     }
   }
@@ -303,7 +328,8 @@ export class Room {
 
       const ts = this._timestamp()
       const roomLabel = room === 'home' ? 'home' : room
-      const tag = `[${ts}][${roomLabel}/${name}]`
+      const ds = this._domainSuffix(room)
+      const tag = `[${ts}][${roomLabel}/${name}${ds}]`
       const presence = room === 'home' ? ` (present: ${this.participantList.join(', ')})` : ''
       this.messages.push({ role: 'user', content: `${tag}${presence}: ${text}` })
 
