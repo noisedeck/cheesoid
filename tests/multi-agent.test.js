@@ -149,4 +149,60 @@ describe('Multi-agent room', () => {
     })
     assert.equal(res.status, 401)
   })
+
+  it('triggering backchannel wakes the agent via processMessage', async () => {
+    const hostDir = await createTestPersona('trigger-host', 'TriggerHost', {
+      agents: [{ name: 'Visitor', secret: 'trigger-secret' }],
+    })
+    const host = await startCheesoid(hostDir, 4010)
+    servers.push(host)
+
+    let processMessageCalled = false
+    const original = host.room._processMessage.bind(host.room)
+    host.room._processMessage = async (...args) => {
+      processMessageCalled = true
+    }
+
+    const res = await fetch('http://localhost:4010/api/chat/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer trigger-secret',
+      },
+      body: JSON.stringify({
+        message: 'Hey TriggerHost, you were addressed in chat',
+        name: 'Visitor',
+        backchannel: true,
+        trigger: true,
+      }),
+    })
+    assert.equal((await res.json()).status, 'sent')
+    await new Promise(r => setTimeout(r, 100))
+    assert.ok(processMessageCalled, 'trigger backchannel should call _processMessage')
+  })
+
+  it('non-triggering backchannel only appends context', async () => {
+    const host = servers[servers.length - 1]
+
+    let processMessageCalled = false
+    host.room._processMessage = async () => { processMessageCalled = true }
+
+    const msgCountBefore = host.room.messages.length
+    const res = await fetch('http://localhost:4010/api/chat/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer trigger-secret',
+      },
+      body: JSON.stringify({
+        message: 'just coordination, no trigger',
+        name: 'Visitor',
+        backchannel: true,
+      }),
+    })
+    assert.equal((await res.json()).status, 'sent')
+    await new Promise(r => setTimeout(r, 100))
+    assert.ok(!processMessageCalled, 'non-trigger backchannel should not call _processMessage')
+    assert.ok(host.room.messages.length > msgCountBefore, 'message should be appended to context')
+  })
 })

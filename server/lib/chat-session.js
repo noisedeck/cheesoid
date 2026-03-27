@@ -234,10 +234,15 @@ export class Room {
     this._startIdleTimer()
   }
 
-  addBackchannelMessage(name, text) {
+  addBackchannelMessage(name, text, options = {}) {
     const taggedMessage = `[${this._timestamp()}][backchannel/${name}${this._domainSuffix('home')}]: ${text}`
     this._safeAppendMessage({ role: 'user', content: taggedMessage })
-    // No broadcast, no history — agents only
+
+    if (options.trigger) {
+      this._processMessage('home', name, text).catch(err => {
+        console.error(`[${this.persona.config.name}] Triggered backchannel error:`, err.message)
+      })
+    }
   }
 
   relayAgentEvent(name, event) {
@@ -289,6 +294,10 @@ export class Room {
       // Agent-only coordination message — add to conversation log, no UI
       const tag = `[${this._timestamp()}][backchannel/${event.room}/${event.name}${ds}]`
       this._safeAppendMessage({ role: 'user', content: `${tag}: ${event.text}` })
+
+      if (event.trigger) {
+        this._processMessage(event.room, event.name, event.text)
+      }
     }
   }
 

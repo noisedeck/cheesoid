@@ -35,7 +35,7 @@ router.post('/api/chat/send', async (req, res) => {
 
   // Agents inject messages without triggering the room's agent
   if (req.isAgent && req.body.backchannel) {
-    room.addBackchannelMessage(name, message)
+    room.addBackchannelMessage(name, message, { trigger: req.body.trigger })
   } else if (req.isAgent) {
     room.addAgentMessage(name, message)
   } else {
