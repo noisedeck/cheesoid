@@ -6,10 +6,11 @@ import { buildSharedWorkspaceTools } from './shared-workspace.js'
  * Build the full tool set for a persona: memory tools + persona-specific tools.
  * Returns { definitions: [...], execute: async (name, input) => result }
  */
-export async function loadTools(personaDir, config, memory, state, room) {
+export async function loadTools(personaDir, config, memory, state, room, registry) {
   const memoryTools = buildMemoryTools(memory, state)
   const sharedTools = buildSharedWorkspaceTools(process.env.SHARED_WORKSPACE_PATH || '/shared')
   const roomTools = buildRoomTools(room, config)
+  const reasonerTools = buildReasonerTools(config, registry)
   let personaTools = { definitions: [], execute: async () => ({ error: 'unknown tool' }) }
 
   if (config.tools) {
@@ -22,9 +23,9 @@ export async function loadTools(personaDir, config, memory, state, room) {
     }
   }
 
-  const allDefinitions = [...memoryTools.definitions, ...sharedTools.definitions, ...roomTools.definitions, ...personaTools.definitions]
+  const allDefinitions = [...memoryTools.definitions, ...sharedTools.definitions, ...roomTools.definitions, ...reasonerTools.definitions, ...personaTools.definitions]
 
-  async function execute(name, input) {
+  async function execute(name, input, options) {
     if (memoryTools.handles(name)) {
       return memoryTools.execute(name, input)
     }
@@ -33,6 +34,9 @@ export async function loadTools(personaDir, config, memory, state, room) {
     }
     if (roomTools.handles(name)) {
       return roomTools.execute(name, input)
+    }
+    if (reasonerTools.handles(name)) {
+      return reasonerTools.execute(name, input, options)
     }
     return personaTools.execute(name, input)
   }
@@ -217,4 +221,67 @@ function buildMemoryTools(memory, state) {
     handles: (name) => memoryToolNames.has(name),
     execute,
   }
+}
+
+const REASONER_SYSTEM = 'You are a reasoning assistant. Analyze the given problem carefully and thoroughly. Provide your conclusion.'
+
+function buildReasonerTools(config, registry) {
+  if (!config.reasoner || !registry) {
+    return { definitions: [], handles: () => false, execute: async () => ({ error: 'unknown tool' }) }
+  }
+
+  const definitions = [
+    {
+      name: 'deep_think',
+      description: 'Delegate a problem to a reasoning model for deep analysis. Use when a question requires careful multi-step reasoning, complex analysis, or strategic thinking that benefits from extended deliberation. Pass a self-contained prompt with all necessary context.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'The question or problem to reason about, including any relevant context needed to think it through.',
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+  ]
+
+  async function execute(name, input, options) {
+    const onEvent = options?.onEvent || (() => {})
+    const models = [config.reasoner, ...(config.reasoner_fallback_models || [])]
+    let lastErr
+
+    for (const modelString of models) {
+      const { modelId, provider } = registry.resolve(modelString)
+      try {
+        const result = await provider.streamMessage(
+          {
+            model: modelId,
+            maxTokens: 16384,
+            system: REASONER_SYSTEM,
+            messages: [{ role: 'user', content: input.prompt }],
+            tools: [],
+            serverTools: [],
+            thinkingBudget: config.chat?.thinking_budget || null,
+          },
+          onEvent,
+        )
+
+        const text = result.contentBlocks
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('\n')
+
+        return { output: text, _usage: result.usage, _model: modelId }
+      } catch (err) {
+        lastErr = err
+        console.log(`[reasoner] ${modelId} failed: ${err.message}, trying next`)
+      }
+    }
+
+    return { output: `Reasoning failed: ${lastErr?.message || 'all models unavailable'}`, is_error: true }
+  }
+
+  return { definitions, handles: (name) => name === 'deep_think', execute }
 }

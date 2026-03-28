@@ -96,8 +96,8 @@ export class Room {
     this.chatLog = new ChatLog(dir)
     await this.state.load()
     this.systemPrompt = await assemblePrompt(dir, config, plugins)
-    this.tools = await loadTools(dir, config, this.memory, this.state, this)
     this.registry = new ProviderRegistry(config)
+    this.tools = await loadTools(dir, config, this.memory, this.state, this, this.registry)
 
     // Replay recent history into agent context
     const recent = await this.chatLog.recent(MAX_HISTORY)
