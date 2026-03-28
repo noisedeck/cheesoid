@@ -97,4 +97,51 @@ orchestrator:
 `)
     await assert.rejects(() => loadPersona(dir), /orchestrator with openai-compat requires base_url/)
   })
+
+  it('parses reasoner model string from config', async () => {
+    const dir = await makePersona(`
+name: test-reasoner
+model: claude-sonnet-4-6
+reasoner: o3:openai
+`)
+    const persona = await loadPersona(dir)
+    assert.equal(persona.config.reasoner, 'o3:openai')
+  })
+
+  it('parses reasoner_fallback_models from config', async () => {
+    const dir = await makePersona(`
+name: test-reasoner-fallback
+model: claude-sonnet-4-6
+reasoner: o3:openai
+reasoner_fallback_models:
+  - o4-mini:openai
+  - claude-opus-4-6
+`)
+    const persona = await loadPersona(dir)
+    assert.deepEqual(persona.config.reasoner_fallback_models, ['o4-mini:openai', 'claude-opus-4-6'])
+  })
+
+  it('parses orchestrator_fallback_models from config', async () => {
+    const dir = await makePersona(`
+name: test-orch-fallback
+model: claude-sonnet-4-6
+orchestrator: claude-opus-4-6
+orchestrator_fallback_models:
+  - claude-sonnet-4-6
+`)
+    const persona = await loadPersona(dir)
+    assert.equal(persona.config.orchestrator, 'claude-opus-4-6')
+    assert.deepEqual(persona.config.orchestrator_fallback_models, ['claude-sonnet-4-6'])
+  })
+
+  it('logs reasoner config when present', async () => {
+    const dir = await makePersona(`
+name: test-reasoner-log
+model: claude-sonnet-4-6
+orchestrator: claude-opus-4-6
+reasoner: o3:openai
+`)
+    const persona = await loadPersona(dir)
+    assert.equal(persona.config.reasoner, 'o3:openai')
+  })
 })

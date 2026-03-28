@@ -25,6 +25,10 @@ export async function loadPersona(personaDir) {
     validateOrchestrator(config)
   }
 
+  if (config.reasoner) {
+    validateReasoner(config)
+  }
+
   const plugins = await loadPlugins(config.plugins || [])
   return { dir: personaDir, config, plugins }
 }
@@ -80,7 +84,8 @@ function validateOrchestrator(config) {
 
   // New style: orchestrator is a model string like "claude-sonnet-4-6:anthropic"
   if (typeof orch === 'string') {
-    console.log(`[${name}] Hybrid mode: orchestrator=${orch}, executor=${config.model}`)
+    const fallbacks = config.orchestrator_fallback_models || []
+    console.log(`[${name}] Hybrid mode: orchestrator=${orch}, executor=${config.model}${fallbacks.length ? `, orchestrator_fallbacks=${fallbacks.join(',')}` : ''}`)
     return
   }
 
@@ -98,6 +103,12 @@ function validateOrchestrator(config) {
   }
 
   console.log(`[${name}] Hybrid mode: orchestrator=${orch.provider}/${orch.model}, executor=${config.provider || 'anthropic'}/${config.model}`)
+}
+
+function validateReasoner(config) {
+  const name = config.name || 'unknown'
+  const fallbacks = config.reasoner_fallback_models || []
+  console.log(`[${name}] Reasoner: model=${config.reasoner}${fallbacks.length ? `, fallbacks=${fallbacks.join(',')}` : ''}`)
 }
 
 function resolveEnvVars(obj) {
