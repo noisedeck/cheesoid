@@ -39,6 +39,7 @@ describe('RoomManager', () => {
     const manager = new RoomManager(persona)
     assert.deepStrictEqual(manager.roomNames, [])
     assert.ok(manager.defaultRoom)
+    assert.strictEqual(manager.isHub, false)
   })
 
   it('isHub returns true when hosted_rooms configured', () => {
