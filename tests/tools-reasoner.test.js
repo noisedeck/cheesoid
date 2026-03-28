@@ -26,8 +26,8 @@ function stubRoom() {
 describe('deep_think tool registration', () => {
   it('registers deep_think when reasoner is configured', async () => {
     const dir = await makeTmpDir()
-    const config = { reasoner: 'o3:openai', memory: { dir: 'memory/', auto_read: [] } }
-    const registry = { resolve: () => ({ modelId: 'o3', provider: {} }) }
+    const config = { reasoner: 'claude-opus-4-6', memory: { dir: 'memory/', auto_read: [] } }
+    const registry = { resolve: () => ({ modelId: 'claude-opus-4-6', provider: {} }) }
 
     const tools = await loadTools(dir, config, stubMemory(), stubState(), stubRoom(), registry)
 
@@ -60,9 +60,9 @@ describe('deep_think tool registration', () => {
       }),
     }
     const registry = {
-      resolve: (modelStr) => ({ modelId: 'o3', provider: mockProvider }),
+      resolve: (modelStr) => ({ modelId: 'claude-opus-4-6', provider: mockProvider }),
     }
-    const config = { reasoner: 'o3:openai', memory: { dir: 'memory/', auto_read: [] } }
+    const config = { reasoner: 'claude-opus-4-6', memory: { dir: 'memory/', auto_read: [] } }
 
     const tools = await loadTools(dir, config, stubMemory(), stubState(), stubRoom(), registry)
     const result = await tools.execute('deep_think', { prompt: 'What is the meaning of life?' })
@@ -85,10 +85,10 @@ describe('deep_think tool registration', () => {
       streamMessage: mock.fn(async () => { throw new Error('model unavailable') }),
     }
     const registry = {
-      resolve: () => ({ modelId: 'o3', provider: failingProvider }),
+      resolve: () => ({ modelId: 'claude-opus-4-6', provider: failingProvider }),
     }
     const config = {
-      reasoner: 'o3:openai',
+      reasoner: 'claude-opus-4-6',
       reasoner_fallback_models: [],
       memory: { dir: 'memory/', auto_read: [] },
     }
@@ -114,14 +114,14 @@ describe('deep_think tool registration', () => {
     }
     const registry = {
       resolve: (modelStr) => {
-        if (modelStr === 'o3:openai') return { modelId: 'o3', provider: failingProvider }
-        if (modelStr === 'claude-opus-4-6') return { modelId: 'claude-opus-4-6', provider: workingProvider }
+        if (modelStr === 'claude-opus-4-6') return { modelId: 'claude-opus-4-6', provider: failingProvider }
+        if (modelStr === 'claude-sonnet-4-6') return { modelId: 'claude-sonnet-4-6', provider: workingProvider }
         return { modelId: modelStr, provider: failingProvider }
       },
     }
     const config = {
-      reasoner: 'o3:openai',
-      reasoner_fallback_models: ['claude-opus-4-6'],
+      reasoner: 'claude-opus-4-6',
+      reasoner_fallback_models: ['claude-sonnet-4-6'],
       memory: { dir: 'memory/', auto_read: [] },
     }
 

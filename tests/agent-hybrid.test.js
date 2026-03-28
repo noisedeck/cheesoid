@@ -301,7 +301,7 @@ describe('runHybridAgent', () => {
 
     const mockRegistry = {
       resolve(modelString) {
-        if (modelString === 'o3:openai') return { modelId: 'o3', provider: reasoningProvider }
+        if (modelString === 'claude-opus-4-6') return { modelId: 'claude-opus-4-6', provider: reasoningProvider }
         return { modelId: modelString, provider: orchestrator }
       },
     }
@@ -309,7 +309,7 @@ describe('runHybridAgent', () => {
     // Build tools with deep_think mock that simulates what buildReasonerTools does
     const deepThinkExecute = async (name, input, options) => {
       const onEvent = options?.onEvent || (() => {})
-      const { modelId, provider } = mockRegistry.resolve('o3:openai')
+      const { modelId, provider } = mockRegistry.resolve('claude-opus-4-6')
       const result = await provider.streamMessage(
         { model: modelId, maxTokens: 16384, system: 'You are a reasoning assistant.', messages: [{ role: 'user', content: input.prompt }], tools: [], serverTools: [], thinkingBudget: null },
         onEvent,

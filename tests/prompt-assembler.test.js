@@ -241,7 +241,7 @@ describe('assemblePrompt', () => {
     const result = await assemblePrompt(dir, {
       display_name: 'Test',
       chat: { prompt: 'prompts/system.md' },
-      reasoner: 'o3:openai',
+      reasoner: 'claude-opus-4-6',
       memory: { dir: 'memory/', auto_read: [] },
     })
 
@@ -272,7 +272,7 @@ describe('assemblePrompt', () => {
       display_name: 'Test',
       provider: 'openai-compat',
       chat: { prompt: 'prompts/system.md' },
-      reasoner: 'o3:openai',
+      reasoner: 'claude-opus-4-6',
       memory: { dir: 'memory/', auto_read: [] },
     })
 
