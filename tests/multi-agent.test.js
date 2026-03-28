@@ -268,6 +268,45 @@ describe('Multi-agent room', () => {
     assert.ok(bcSends[0].text.includes('brad'))
   })
 
+  it('internal tool delivers thought to home and backchannel to remote room', async () => {
+    const visitorDir = await createTestPersona('internal-test', 'InternalTest', {
+      rooms: [{ name: 'brad', url: 'http://localhost:4099', secret: 's', domain: 'brad.test' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4015)
+    servers.push(visitor)
+
+    const bcSends = []
+    const mockClient = {
+      sendBackchannel: async (text) => { bcSends.push(text) },
+      sendMessage: async () => {},
+      sendEvent: () => {},
+      destroy: () => {},
+    }
+    // Initialize tools (happens on first message normally)
+    // Must happen before setting mock client, as initialize() creates real RoomClients
+    if (!visitor.room.tools) await visitor.room.initialize()
+
+    // Override the real RoomClient with our mock after initialization
+    visitor.room.roomClients.set('brad', mockClient)
+
+    // Simulate being in a remote room
+    visitor.room._pendingRoom = 'brad'
+
+    // Call internal tool directly (simulating what the agent loop does)
+    const result = await visitor.room.tools.execute('internal', {
+      thought: 'Not my area of expertise.',
+      backchannel: 'Brad, this is your domain.',
+    })
+
+    // Thought echoed in result for agent memory
+    assert.ok(result.output.includes('Not my area of expertise.'))
+    assert.ok(result.output.includes('Backchannel sent'))
+
+    // Backchannel delivered to remote room
+    assert.equal(bcSends.length, 1)
+    assert.equal(bcSends[0], 'Brad, this is your domain.')
+  })
+
   it('full coordination flow: mention → auto-nudge → backchannel delivered', async () => {
     const hostDir = await createTestPersona('coord-host', 'CoordHost', {
       agents: [{ name: 'Helper', secret: 'helper-secret' }],
