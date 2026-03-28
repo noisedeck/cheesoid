@@ -421,6 +421,7 @@ export class Room {
         executorProvider: null,
         executorModel: hasOrchestrator ? executorModel : null,
         executorFallbackModels: hasOrchestrator ? (this.persona.config.fallback_models || []) : [],
+        orchestratorFallbackModels: hasOrchestrator ? (this.persona.config.orchestrator_fallback_models || []) : [],
         registry: this.registry,
       }
 
@@ -576,6 +577,7 @@ export class Room {
         executorProvider: null,
         executorModel: hasOrchestrator ? executorModel : null,
         executorFallbackModels: hasOrchestrator ? (this.persona.config.fallback_models || []) : [],
+        orchestratorFallbackModels: hasOrchestrator ? (this.persona.config.orchestrator_fallback_models || []) : [],
         registry: this.registry,
       }
 

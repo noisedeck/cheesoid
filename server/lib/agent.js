@@ -383,6 +383,34 @@ async function callExecutorWithFallback(config, params, onEvent) {
   throw lastErr || new Error('All executor models failed')
 }
 
+function isOrchestratorRetryable(err) {
+  if (err.status === 529 || err.status === 503 || err.status === 404) return true
+  if (err.errorType === 'overloaded_error' || err.errorType === 'api_error') return true
+  return false
+}
+
+async function callOrchestratorWithFallback(config, params, onEvent) {
+  try {
+    return await config.provider.streamMessage(params, onEvent)
+  } catch (err) {
+    if (!isOrchestratorRetryable(err) || !config.orchestratorFallbackModels?.length) {
+      throw err
+    }
+    console.log(`[hybrid] orchestrator ${params.model} failed: ${err.message}, trying fallbacks`)
+
+    for (const modelString of config.orchestratorFallbackModels) {
+      const { modelId, provider } = config.registry.resolve(modelString)
+      try {
+        onEvent({ type: 'model_fallback', from: params.model, to: modelId })
+        return await provider.streamMessage({ ...params, model: modelId }, onEvent)
+      } catch (fallbackErr) {
+        console.log(`[hybrid] orchestrator fallback ${modelId} failed: ${fallbackErr.message}`)
+      }
+    }
+    throw err
+  }
+}
+
 /**
  * Hybrid agent loop. The orchestrator (smart, expensive model) handles
  * reasoning, persona, and planning. The executor (cheap model) handles
@@ -452,7 +480,8 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     repairToolUseGaps(messages)
 
     // Orchestrator call — full context
-    const result = await orchestrator.streamMessage(
+    const result = await callOrchestratorWithFallback(
+      config,
       {
         model: config.model,
         maxTokens: 16384,
