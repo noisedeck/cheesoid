@@ -11,6 +11,8 @@ export class RoomManager {
     this._rooms = new Map()
     this._defaultRoom = null
 
+    this._dmClients = new Map() // name → Set<res>
+
     const hostedRooms = persona.config.hosted_rooms || []
     if (hostedRooms.length > 0) {
       for (const name of hostedRooms) {
@@ -19,6 +21,56 @@ export class RoomManager {
     } else {
       // Legacy single-room mode
       this._defaultRoom = new Room(persona)
+    }
+  }
+
+  addDMClient(res, name) {
+    if (!name) return
+    if (!this._dmClients.has(name)) {
+      this._dmClients.set(name, new Set())
+    }
+    this._dmClients.get(name).add(res)
+    if (res.on) {
+      res.on('close', () => {
+        const clients = this._dmClients.get(name)
+        if (clients) {
+          clients.delete(res)
+          if (clients.size === 0) this._dmClients.delete(name)
+        }
+      })
+    }
+  }
+
+  routeDM(from, to, text, isAgent) {
+    const event = {
+      type: 'user_message',
+      from,
+      to,
+      text,
+      timestamp: Date.now(),
+    }
+    const data = `data: ${JSON.stringify(event)}\n\n`
+
+    for (const name of [from, to]) {
+      const clients = this._dmClients.get(name)
+      if (clients) {
+        for (const client of clients) {
+          client.write(data)
+        }
+      }
+    }
+
+    // If recipient is the hub's own agent, trigger processing
+    const agentName = this.persona.config.display_name
+    if (to === agentName) {
+      const room = this.isHub
+        ? this._rooms.values().next().value
+        : this._defaultRoom
+      if (room) {
+        room.sendMessage(from, text).catch(err => {
+          console.error(`[${this.persona.config.name}] DM processing error:`, err.message)
+        })
+      }
     }
   }
 
