@@ -8,10 +8,26 @@ router.use((req, res, next) => {
   next()
 })
 
-// SSE stream — client connects and receives all room events
+/**
+ * Resolve the target room from request params.
+ * Hub mode: look up by room name (query or body). Legacy mode: use default room.
+ * Returns null if room not found (caller should 404).
+ */
+function resolveRoom(req, roomName) {
+  const { rooms } = req.app.locals
+  if (!rooms) return req.app.locals.room // deep legacy fallback
+
+  if (rooms.isHub && roomName) {
+    return rooms.get(roomName)
+  }
+  return rooms.resolve(roomName)
+}
+
+// SSE stream — client connects and receives events from a room
 router.get('/api/chat/stream', (req, res) => {
   const name = req.userName || req.query.name || null
-  const { room } = req.app.locals
+  const room = resolveRoom(req, req.query.room)
+  if (!room) return res.status(404).json({ error: 'room not found' })
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -21,19 +37,27 @@ router.get('/api/chat/stream', (req, res) => {
   room.addClient(res, name, req.isAgent)
 })
 
-// Send a message to the room
+// Send a message to a room or DM
 router.post('/api/chat/send', async (req, res) => {
-  const { message } = req.body
+  const { message, to } = req.body
   const name = req.userName || req.body.name
   if (!message) return res.status(400).json({ error: 'message required' })
   if (!name) return res.status(400).json({ error: 'name required' })
 
-  const { room } = req.app.locals
+  // DM handling — route to both participants
+  if (to) {
+    const { rooms } = req.app.locals
+    if (rooms && rooms.isHub && rooms.routeDM) {
+      rooms.routeDM(name, to, message, req.isAgent)
+      return res.json({ status: 'sent' })
+    }
+  }
 
-  // Respond immediately — events go to the SSE stream
+  const room = resolveRoom(req, req.body.room)
+  if (!room) return res.status(404).json({ error: 'room not found' })
+
   res.json({ status: 'sent' })
 
-  // Agents inject messages without triggering the room's agent
   if (req.isAgent && req.body.backchannel) {
     room.addBackchannelMessage(name, message, { trigger: req.body.trigger })
   } else if (req.isAgent) {
@@ -54,7 +78,9 @@ router.post('/api/chat/event', (req, res) => {
     return res.status(400).json({ error: 'name and event with type required' })
   }
 
-  const { room } = req.app.locals
+  const room = resolveRoom(req, req.body.room)
+  if (!room) return res.status(404).json({ error: 'room not found' })
+
   room.relayAgentEvent(name, event)
   res.json({ status: 'relayed' })
 })
