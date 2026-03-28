@@ -45,6 +45,8 @@ export async function loadTools(personaDir, config, memory, state, room, registr
 }
 
 function buildRoomTools(room, config) {
+  const hasMultiAgent = (config.rooms && config.rooms.length > 0) || (config.agents && config.agents.length > 0)
+
   const definitions = [
     {
       name: 'send_chat_message',
@@ -71,6 +73,20 @@ function buildRoomTools(room, config) {
     },
   ]
 
+  if (hasMultiAgent) {
+    definitions.push({
+      name: 'internal',
+      description: 'Record an internal thought (visible as idle text) and/or send a backchannel message to coordinate with other agents. At least one of thought or backchannel must be provided.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          thought: { type: 'string', description: 'An internal thought to broadcast as idle text and record in history.' },
+          backchannel: { type: 'string', description: 'A backchannel message for agent coordination, sent to the current pending room.' },
+        },
+      },
+    })
+  }
+
   const toolNames = new Set(definitions.map(d => d.name))
 
   async function execute(name, input) {
@@ -92,6 +108,35 @@ function buildRoomTools(room, config) {
           return `${prefix} (${e.type}): ${e.text}`
         }).join('\n')
         return { output: formatted }
+      }
+      case 'internal': {
+        if (!input.thought && !input.backchannel) {
+          return { output: 'Must provide at least one of: thought, backchannel', is_error: true }
+        }
+
+        const parts = []
+
+        if (input.thought) {
+          room.broadcast({ type: 'idle_text_delta', text: input.thought })
+          room.broadcast({ type: 'idle_done' })
+          room.recordHistory({ type: 'idle_thought', text: input.thought })
+          parts.push(`Thought: ${input.thought}`)
+        }
+
+        if (input.backchannel) {
+          const pendingRoom = room._pendingRoom
+          if (pendingRoom && pendingRoom !== 'home') {
+            const client = room.roomClients.get(pendingRoom)
+            if (client) {
+              await client.sendBackchannel(input.backchannel)
+            }
+          } else {
+            room.broadcast({ type: 'backchannel', name: room.persona.config.display_name, text: input.backchannel })
+          }
+          parts.push('Backchannel sent.')
+        }
+
+        return { output: parts.join('\n') }
       }
       default:
         return { output: `Unknown room tool: ${name}`, is_error: true }
