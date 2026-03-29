@@ -27,6 +27,8 @@ export class RoomManager {
       chatLog: null,
       registry: null,
       modality: null,
+      clients: new Set(),
+      participants: new Map(),
       busy: false,
       lastActivity: Date.now(),
       idleTimer: null,

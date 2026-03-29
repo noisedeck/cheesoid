@@ -33,18 +33,13 @@ router.get('/api/chat/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
 
-  if (rooms && rooms.isHub) {
-    // Hub mode: subscribe to all rooms + DMs
-    for (const room of rooms.rooms()) {
-      room.addClient(res, name, req.isAgent)
-    }
-    rooms.addDMClient(res, name)
-  } else {
-    // Legacy single-room mode
-    const room = resolveRoom(req, req.query.room)
-    if (!room) return res.status(404).json({ error: 'room not found' })
-    room.addClient(res, name, req.isAgent)
-  }
+  // One stream per client. Default room handles SSE subscription,
+  // broadcasts, and scrollback. Rooms are a UI routing concept —
+  // events are tagged with room names, UI filters by current view.
+  const defaultRoom = rooms ? rooms.defaultRoom : resolveRoom(req, req.query.room)
+  if (!defaultRoom) return res.status(404).json({ error: 'room not found' })
+  defaultRoom.addClient(res, name, req.isAgent)
+  if (rooms) rooms.addDMClient(res, name)
 })
 
 // Send a message to a room or DM

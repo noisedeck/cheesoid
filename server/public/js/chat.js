@@ -208,6 +208,23 @@ function handleEvent(e) {
       idleEl = null
       idleBuffer = ''
       for (const msg of event.messages) {
+        // Filter by view: DMs to DM views, room messages to matching room views
+        if (msg.dm_from || msg.dm_to) {
+          // DM — must be a participant and in the correct DM view
+          if (msg.dm_from !== myName && msg.dm_to !== myName) continue
+          if (!currentView || !currentView.startsWith('dm:')) continue
+          const dmPeer = msg.dm_from === myName ? msg.dm_to : msg.dm_from
+          if (currentView !== `dm:${dmPeer}`) continue
+        } else if (currentView && currentView.startsWith('dm:')) {
+          // In DM view — skip non-DM messages
+          continue
+        } else if (msg.room && currentView && msg.room !== currentView) {
+          // Room message — only show in matching channel
+          continue
+        } else if (!msg.room && currentView && hubMode) {
+          // Untagged message (idle thoughts, system, old entries) — show in first room only
+          if (currentView !== hostedRooms[0]) continue
+        }
         if (msg.type === 'user_message') {
           appendMessage('user', msg.text, msg.name, msg.timestamp, false, msg.model)
         } else if (msg.type === 'assistant_message') {
@@ -611,8 +628,11 @@ function switchView(view) {
     forceScrollToBottom()
   } else {
     messages.innerHTML = ''
-    if (!view.startsWith('dm:')) {
-      fetch(`/api/chat/scrollback?room=${encodeURIComponent(view)}`)
+    {
+      const scrollbackUrl = view.startsWith('dm:')
+        ? '/api/chat/scrollback'
+        : `/api/chat/scrollback?room=${encodeURIComponent(view)}`
+      fetch(scrollbackUrl)
         .then(r => r.json())
         .then(data => {
           if (data.messages && currentView === view) {

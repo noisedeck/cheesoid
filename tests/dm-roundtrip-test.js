@@ -67,6 +67,21 @@ async function testDMRoundTrip(agentName) {
     }
 
     console.log(`  Response: "${responseText.slice(0, 100)}${responseText.length > 100 ? '...' : ''}"`)
+
+    // Verify DMs don't leak to #general — switch to room view and check
+    const roomItem = page.locator('#rooms-list li').first()
+    if (await roomItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await roomItem.click()
+      await page.waitForTimeout(2000)
+      const generalBodies = await page.locator('.message-body').allTextContents()
+      const leaked = generalBodies.filter(t => t.includes(dmText))
+      if (leaked.length > 0) {
+        await page.screenshot({ path: `tests/dm-leak-${agentName.toLowerCase()}.png`, fullPage: true })
+        throw new Error(`DM leaked to #general! Found "${dmText}" in room view`)
+      }
+      console.log(`  No DM leak to #general ✓`)
+    }
+
     console.log(`  ✓ DM round-trip to ${agentName} PASSED`)
 
     await page.screenshot({ path: `tests/dm-pass-${agentName.toLowerCase()}.png`, fullPage: true })
@@ -80,15 +95,92 @@ async function testDMRoundTrip(agentName) {
   }
 }
 
+async function testDMPrivacy() {
+  // User A sends DM to Red, User B should NOT see it
+  const browserA = await chromium.launch({ headless: true })
+  const browserB = await chromium.launch({ headless: true })
+  const pageA = await browserA.newPage()
+  const pageB = await browserB.newPage()
+
+  try {
+    console.log('\n=== Testing DM privacy (non-recipient cannot see DMs) ===')
+
+    // User A joins
+    await pageA.goto(BASE)
+    await pageA.fill('#name-input', 'Alice')
+    await pageA.click('#name-btn')
+    await pageA.waitForSelector('#messages', { state: 'visible' })
+    await pageA.waitForTimeout(3000)
+
+    // User B joins
+    await pageB.goto(BASE)
+    await pageB.fill('#name-input', 'Bob')
+    await pageB.click('#name-btn')
+    await pageB.waitForSelector('#messages', { state: 'visible' })
+    await pageB.waitForTimeout(3000)
+
+    // Alice sends DM to Red
+    const aliceParticipant = pageA.locator('#participants li[data-name="Red"]')
+    await aliceParticipant.click()
+    await pageA.waitForTimeout(500)
+    const dmText = `SECRET_DM_${Date.now()}`
+    await pageA.fill('#input', dmText)
+    await pageA.click('#send-btn')
+    console.log(`  Alice sent DM to Red: "${dmText}"`)
+
+    // Wait for Alice to see her message
+    await pageA.waitForTimeout(5000)
+    const aliceSees = await pageA.locator('.message-body', { hasText: dmText }).isVisible().catch(() => false)
+    console.log(`  Alice sees her DM: ${aliceSees ? '✓' : '✗'}`)
+
+    // Wait for response from Red
+    await pageA.waitForTimeout(15000)
+
+    // Bob opens dm:Red — should NOT see Alice's DM
+    const bobParticipant = pageB.locator('#participants li[data-name="Red"]')
+    await bobParticipant.click()
+    await pageB.waitForTimeout(3000)
+    const bobBodies = await pageB.locator('.message-body').allTextContents()
+    const bobSeesAliceDM = bobBodies.some(t => t.includes(dmText))
+    console.log(`  Bob sees Alice's DM in dm:Red: ${bobSeesAliceDM ? '✗ LEAKED!' : '✓ Hidden'}`)
+
+    // Bob checks #general too
+    const roomItem = pageB.locator('#rooms-list li').first()
+    if (await roomItem.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await roomItem.click()
+      await pageB.waitForTimeout(2000)
+      const generalBodies = await pageB.locator('.message-body').allTextContents()
+      const bobSeesInGeneral = generalBodies.some(t => t.includes(dmText))
+      console.log(`  Bob sees Alice's DM in #general: ${bobSeesInGeneral ? '✗ LEAKED!' : '✓ Hidden'}`)
+    }
+
+    if (bobSeesAliceDM) {
+      await pageB.screenshot({ path: 'tests/dm-privacy-fail.png', fullPage: true })
+      throw new Error('DM leaked to non-recipient!')
+    }
+
+    console.log('  ✓ DM privacy PASSED')
+    return true
+  } catch (err) {
+    console.error(`  ✗ DM privacy FAILED: ${err.message}`)
+    return false
+  } finally {
+    await browserA.close()
+    await browserB.close()
+  }
+}
+
 async function main() {
   const redResult = await testDMRoundTrip('Red')
   const greenResult = await testDMRoundTrip('Green')
+  const privacyResult = await testDMPrivacy()
 
   console.log('\n=== RESULTS ===')
-  console.log(`Red DM:   ${redResult ? 'PASS ✓' : 'FAIL ✗'}`)
-  console.log(`Green DM: ${greenResult ? 'PASS ✓' : 'FAIL ✗'}`)
+  console.log(`Red DM:      ${redResult ? 'PASS ✓' : 'FAIL ✗'}`)
+  console.log(`Green DM:    ${greenResult ? 'PASS ✓' : 'FAIL ✗'}`)
+  console.log(`DM Privacy:  ${privacyResult ? 'PASS ✓' : 'FAIL ✗'}`)
 
-  process.exit(redResult && greenResult ? 0 : 1)
+  process.exit(redResult && greenResult && privacyResult ? 0 : 1)
 }
 
 main()

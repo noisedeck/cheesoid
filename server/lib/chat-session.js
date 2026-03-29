@@ -49,9 +49,6 @@ export class Room {
     this.persona = persona
     this.roomName = options.roomName || null
 
-    // Channel state — per room instance (SSE clients, participants)
-    this.clients = new Set()
-    this.participants = new Map()
     this._heartbeatTimer = null
 
     // Agent state — single thread of awareness.
@@ -72,6 +69,8 @@ export class Room {
         busy: false,
         lastActivity: Date.now(),
         idleTimer: null,
+        clients: new Set(),
+        participants: new Map(),
         history: [],
         roomClients: new Map(),
         _pendingRoom: null,
@@ -110,6 +109,10 @@ export class Room {
   }
 
   // Agent state accessors — all rooms see the same values
+  get clients() { return this._a.clients }
+  set clients(v) { this._a.clients = v }
+  get participants() { return this._a.participants }
+  set participants(v) { this._a.participants = v }
   get messages() { return this._a.messages }
   set messages(v) { this._a.messages = v }
   get systemPrompt() { return this._a.systemPrompt }
@@ -240,7 +243,7 @@ export class Room {
       this.participants.set(name, Date.now())
       this.broadcast({ type: 'presence', participants: this.participantList })
     }
-    // Send scrollback to the newly connecting client
+    // Send scrollback — one history, one send
     const scrollback = this.getScrollback()
     if (scrollback.length > 0) {
       const data = `data: ${JSON.stringify({ type: 'scrollback', messages: scrollback })}\n\n`
@@ -320,7 +323,7 @@ export class Room {
   addAgentMessage(name, text, { source = 'user', model } = {}) {
     this._safeAppendMessage({ role: 'user', content: `${name}: ${text}` })
     this.broadcast({ type: 'user_message', name, text, fromAgent: true, model })
-    const histEntry = { type: 'user_message', name, text }
+    const histEntry = { type: 'user_message', name, text, room: this.roomName }
     if (model) histEntry.model = model
     this.recordHistory(histEntry)
     this.lastActivity = Date.now()
@@ -473,8 +476,8 @@ export class Room {
     try {
       if (!this.systemPrompt) await this.initialize()
 
-      this.messages.push({ role: 'user', content: `(DM from ${from}): ${text}` })
-      this.recordHistory({ type: 'user_message', name: from, text: `(DM) ${text}` })
+      this.messages.push({ role: 'user', content: `${from}: ${text}` })
+      this.recordHistory({ type: 'user_message', name: from, text, dm_from: from, dm_to: this.persona.config.display_name })
 
       const hasModality = this.modality?.isModal
       const hasOrchestrator = !hasModality && this.persona.config.orchestrator != null
@@ -532,19 +535,22 @@ export class Room {
       })
       this.messages = result.messages
 
-      // Route response back as a DM
-      if (assistantText.trim()) {
-        this.recordHistory({ type: 'assistant_message', text: `(DM to ${from}) ${assistantText.trim()}` })
+      // Route response back as a DM — strip any DM prefix the agent may have echoed
+      let dmResponse = assistantText.trim()
+      // Strip all (DM ...) prefixes the agent may have echoed
+      while (/^\(DM[^)]*\)\s*/i.test(dmResponse)) {
+        dmResponse = dmResponse.replace(/^\(DM[^)]*\)\s*/i, '')
+      }
+      if (dmResponse) {
+        this.recordHistory({ type: 'assistant_message', text: dmResponse, dm_from: this.persona.config.display_name, dm_to: from })
         const agentName = this.persona.config.display_name
         if (this.roomClients.size > 0) {
-          // Visitor agent — send DM response back via room client to host
           for (const client of this.roomClients.values()) {
-            await client.sendDMResponse(from, assistantText.trim())
+            await client.sendDMResponse(from, dmResponse)
             break
           }
         } else if (this._roomManager) {
-          // Host agent — route directly via room manager
-          this._roomManager.routeDM(agentName, from, assistantText.trim(), true)
+          this._roomManager.routeDM(agentName, from, dmResponse, true)
         }
       }
     } catch (err) {
@@ -636,7 +642,7 @@ export class Room {
       if (room === 'home' && !options._silent) {
         if (name) this.participants.set(name, Date.now())
         this.broadcast({ type: 'user_message', name, text, leader })
-        this.recordHistory({ type: 'user_message', name, text })
+        this.recordHistory({ type: 'user_message', name, text, room: this.roomName })
       }
 
       // Modality gear shift on leader election: leader steps up, others step down
@@ -767,7 +773,7 @@ export class Room {
       // Route response — freeform text is always public
       if (this._pendingRoom === 'home') {
         if (assistantText.trim()) {
-          const histEntry = { type: 'assistant_message', text: assistantText.trim() }
+          const histEntry = { type: 'assistant_message', text: assistantText.trim(), room: this.roomName }
           if (assistantModel) histEntry.model = assistantModel
           this.recordHistory(histEntry)
         }
