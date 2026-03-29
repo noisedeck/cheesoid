@@ -95,9 +95,9 @@ export class RoomClient {
     return this._post({ message: text, name: this.agentName, dm_to: to })
   }
 
-  async sendEvent(event) {
+  async sendEvent(event, room) {
     const url = new URL('/api/chat/event', this.url)
-    const body = JSON.stringify({ name: this.agentName, event })
+    const body = JSON.stringify({ name: this.agentName, event, room })
     const mod = this._isHttps ? https : http
 
     return new Promise((resolve) => {

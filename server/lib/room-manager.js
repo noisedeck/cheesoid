@@ -105,6 +105,15 @@ export class RoomManager {
 
     const agentName = this.persona.config.display_name
 
+    // Record DMs involving visitor agents in host history for scrollback.
+    // Host DMs are recorded by processDM — only record non-host DMs here.
+    if (from !== agentName && to !== agentName) {
+      const histEntry = isAgent
+        ? { type: 'assistant_message', text, name: from, dm_from: from, dm_to: to }
+        : { type: 'user_message', text, name: from, dm_from: from, dm_to: to }
+      this._defaultRoom.recordHistory(histEntry)
+    }
+
     if (to === agentName) {
       // DM to the host agent — process and reply via default room
       this._defaultRoom.processDM(from, text).catch(err => {

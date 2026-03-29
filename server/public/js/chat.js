@@ -163,6 +163,8 @@ async function enterRoom(presenceData) {
 
 function connectSSE() {
   if (evtSource) evtSource.close()
+  // Clear stale view cache on reconnect so fresh scrollback is used
+  viewCache.clear()
   evtSource = new EventSource(`/api/chat/stream?name=${encodeURIComponent(myName)}`)
   evtSource.onmessage = handleEvent
   evtSource.onerror = () => {
@@ -195,7 +197,11 @@ function handleEvent(e) {
     }
 
     // Only render events for current view (or unscoped events like presence)
-    if (eventView && eventView !== currentView) return
+    if (eventView && eventView !== currentView) {
+      // Invalidate cached HTML so fresh scrollback is fetched on switch
+      viewCache.delete(eventView)
+      return
+    }
   }
 
   switch (event.type) {

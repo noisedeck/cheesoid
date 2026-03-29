@@ -212,11 +212,12 @@ export class Room {
 
     // Connect to configured remote rooms
     for (const roomConfig of config.rooms || []) {
+      const configName = roomConfig.name
       const client = new RoomClient(roomConfig, {
         agentName: config.display_name,
-        onMessage: (event) => this._handleRemoteEvent(event),
+        onMessage: (event) => this._handleRemoteEvent(event, configName),
       })
-      this.roomClients.set(roomConfig.name, client)
+      this.roomClients.set(configName, client)
       client.connect()
     }
 
@@ -386,7 +387,7 @@ export class Room {
     this.broadcast({ ...event, agentName: name, visiting: true })
   }
 
-  _handleRemoteEvent(event) {
+  _handleRemoteEvent(event, roomConfigName) {
     // Skip all host scrollback — visitor has own history from initialize()
     if (event.scrollback) return
 
@@ -404,6 +405,11 @@ export class Room {
       }
       return
     }
+
+    // Use the room config name for routing (e.g. 'red-room'), NOT the
+    // host's channel tag ('#general'). The channel tag is preserved in
+    // _pendingRoomChannel so the response is routed to the correct channel.
+    const routeRoom = roomConfigName || event.room
 
     if (event.type === 'user_message') {
       if (event.fromAgent) {
@@ -424,14 +430,14 @@ export class Room {
           if (this.modality?.isModal) this.modality.stepUp('addressed by name')
           console.log(`[${this.persona.config.name}] Mentioned by name — responding`)
           this._pendingRoomChannel = event.room || null
-          this._processMessage(event.room, event.name, event.text)
+          this._processMessage(routeRoom, event.name, event.text)
         } else if (event.leader && event.leader !== myName) {
           // Not our turn — don't add to context, don't process
           console.log(`[${this.persona.config.name}] Deferring to ${event.leader}`)
         } else {
           console.log(`[${this.persona.config.name}] Taking the floor`)
           this._pendingRoomChannel = event.room || null
-          this._processMessage(event.room, event.name, event.text)
+          this._processMessage(routeRoom, event.name, event.text)
         }
       }
     } else if (event.type === 'assistant_message') {
@@ -439,7 +445,7 @@ export class Room {
     } else if (event.type === 'backchannel') {
       this._safeAppendMessage({ role: 'user', content: `(backchannel) ${event.name}: ${event.text}` })
       if (event.trigger) {
-        this._processMessage(event.room, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above.`, { _silent: true })
+        this._processMessage(routeRoom, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above.`, { _silent: true })
       }
     }
   }
@@ -746,7 +752,7 @@ export class Room {
           // text_delta/done are NOT forwarded — the final public text arrives via
           // sendMessage() after the agent loop completes.
           const client = this.roomClients.get(this._pendingRoom)
-          if (client) client.sendEvent(event)
+          if (client) client.sendEvent(event, this._pendingRoomChannel)
         }
       }
 
