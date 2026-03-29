@@ -68,7 +68,11 @@ router.post('/api/chat/send', async (req, res) => {
 
   res.json({ status: 'sent' })
 
-  if (req.isAgent && req.body.backchannel) {
+  if (req.isAgent && req.body.dm_to) {
+    // Visitor agent responding to a DM — route via DM system
+    const { rooms } = req.app.locals
+    if (rooms) rooms.routeDM(name, req.body.dm_to, message, true)
+  } else if (req.isAgent && req.body.backchannel) {
     room.addBackchannelMessage(name, message, { trigger: req.body.trigger })
   } else if (req.isAgent) {
     room.addAgentMessage(name, message, { source: 'room', model: req.body.model })

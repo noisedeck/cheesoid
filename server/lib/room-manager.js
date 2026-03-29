@@ -2,8 +2,12 @@
 import { Room } from './chat-session.js'
 
 /**
- * Manages multiple named rooms for hub personas,
- * or a single default room for legacy single-room personas.
+ * Manages multiple named rooms (channels) for a single agent.
+ *
+ * Rooms are UI channels — separate SSE clients, scrollback, history.
+ * Agent awareness is singular — one messages array, one busy flag,
+ * one set of tools, one modality. This lives on the RoomManager,
+ * not on individual rooms. Rooms reference the shared agent state.
  */
 export class RoomManager {
   constructor(persona) {
@@ -13,16 +17,46 @@ export class RoomManager {
 
     this._dmClients = new Map() // name → Set<res>
 
+    // Shared agent state — single thread of awareness
+    this.agent = {
+      messages: [],
+      systemPrompt: null,
+      tools: null,
+      memory: null,
+      state: null,
+      chatLog: null,
+      registry: null,
+      modality: null,
+      busy: false,
+      lastActivity: Date.now(),
+      idleTimer: null,
+      history: [],
+      roomClients: new Map(),
+      _pendingRoom: null,
+      _messageQueue: [],
+      _idleInterval: 30 * 60 * 1000,
+      _consecutiveDegenerateCount: 0,
+      _destroyed: false,
+      _sessionStartHandled: false,
+      _pendingContextMessages: [],
+      _leaderPool: [persona.config.display_name],
+      _leaderIndex: 0,
+      _wakeupSchedulers: [],
+    }
+    for (const agent of persona.config.agents || []) {
+      this.agent._leaderPool.push(agent.name)
+    }
+
     const hostedRooms = persona.config.hosted_rooms || []
     if (hostedRooms.length > 0) {
       for (const name of hostedRooms) {
-        const room = new Room(persona, { roomName: name })
+        const room = new Room(persona, { roomName: name, agent: this.agent })
         room._roomManager = this
         this._rooms.set(name, room)
       }
+      this._defaultRoom = this._rooms.values().next().value
     } else {
-      // Legacy single-room mode
-      this._defaultRoom = new Room(persona)
+      this._defaultRoom = new Room(persona, { agent: this.agent })
       this._defaultRoom._roomManager = this
     }
   }
@@ -59,6 +93,7 @@ export class RoomManager {
 
     for (const name of [from, to]) {
       const clients = this._dmClients.get(name)
+      console.log(`[DM] routing to ${name}: ${clients ? clients.size : 0} clients`)
       if (clients) {
         for (const client of clients) {
           client.write(data)
@@ -66,16 +101,19 @@ export class RoomManager {
       }
     }
 
-    // If recipient is the hub's own agent, process and reply via DM
     const agentName = this.persona.config.display_name
+
     if (to === agentName) {
-      const room = this.isHub
-        ? this._rooms.values().next().value
-        : this._defaultRoom
-      if (room) {
-        room.processDM(from, text).catch(err => {
-          console.error(`[${this.persona.config.name}] DM processing error:`, err.message)
-        })
+      // DM to the host agent — process and reply via default room
+      this._defaultRoom.processDM(from, text).catch(err => {
+        console.error(`[${this.persona.config.name}] DM processing error:`, err.message)
+      })
+    } else {
+      // DM to a visitor agent — forward via room broadcast
+      const knownAgents = (this.persona.config.agents || []).map(a => a.name)
+      if (knownAgents.includes(to)) {
+        this._defaultRoom.addBackchannelMessage('system', `${from} sent a DM to ${to}: "${text}"`)
+        this._defaultRoom.broadcast({ type: 'dm_request', from, to, text, timestamp: Date.now() })
       }
     }
   }
@@ -96,34 +134,26 @@ export class RoomManager {
     return this._rooms.get(name)
   }
 
-  /**
-   * Get room by name, falling back to default for legacy mode.
-   * For hub mode, returns first room if no name given.
-   */
   resolve(name) {
     if (this.isHub) {
-      return name ? this._rooms.get(name) : this._rooms.values().next().value
+      return name ? this._rooms.get(name) : this._defaultRoom
     }
     return this._defaultRoom
   }
 
   async initialize() {
-    if (this.isHub) {
-      for (const room of this._rooms.values()) {
-        await room.initialize()
-      }
-    } else {
-      await this._defaultRoom.initialize()
-    }
+    // Initialize agent state via any room — they all share _a,
+    // so the guard (if systemPrompt) return prevents double init
+    await this._defaultRoom.initialize()
   }
 
-  /** All rooms as an iterable */
+  /** All rooms as an iterable (each is a distinct channel) */
   rooms() {
     if (this.isHub) return this._rooms.values()
     return [this._defaultRoom][Symbol.iterator]()
   }
 
-  /** Aggregated participants across all rooms */
+  /** Aggregated participants across all channels */
   get allParticipants() {
     const names = new Set()
     for (const room of this.rooms()) {

@@ -274,10 +274,35 @@ function handleEvent(e) {
         const vToolDetails = vs.element.querySelector('details.tool-details')
         if (vToolDetails) vToolDetails.open = false
         visitorStreams.delete(event.name)
+      } else if (event.to && event.from === personaLabel) {
+        // DM response from the host agent — render as assistant and clean up thinking
+        if (thinkingEl) {
+          thinkingEl.remove()
+          thinkingEl = null
+        }
+        if (assistantEl) {
+          const body = assistantEl.querySelector('.message-body')
+          if (body) body.innerHTML = renderMarkdown(event.text)
+          if (event.model) {
+            const meta = assistantEl.querySelector('.message-meta')
+            if (meta && !meta.querySelector('.message-model')) {
+              const modelSpan = document.createElement('span')
+              modelSpan.className = 'message-model'
+              modelSpan.textContent = event.model
+              meta.appendChild(modelSpan)
+            }
+          }
+          assistantEl = null
+          assistantBuffer = ''
+        } else {
+          appendMessage('assistant', event.text, null, null, false, event.model)
+        }
       } else {
         appendMessage('user', event.text, event.name || event.from, null, event.fromAgent, event.model)
       }
-      if (!event.fromAgent) {
+      // Show thinking indicator for room messages and DMs to the host agent
+      const isDMToHost = event.to && event.to === personaLabel
+      if (!event.fromAgent && (!event.to || isDMToHost)) {
         assistantEl = appendMessage('assistant', '')
         assistantBuffer = ''
         thinkingEl = document.createElement('div')
@@ -541,10 +566,17 @@ function renderRoomsList(rooms) {
   }
 }
 
+const viewCache = new Map() // view → saved innerHTML
+
 function switchView(view) {
   if (view === currentView) return
+
+  // Save current view's content
+  if (currentView) {
+    viewCache.set(currentView, messages.innerHTML)
+  }
+
   currentView = view
-  messages.innerHTML = ''
   lastSender = null
   assistantEl = null
   assistantBuffer = ''
@@ -573,16 +605,22 @@ function switchView(view) {
     updateUnreadBadges()
   }
 
-  // Fetch scrollback for room views
-  if (!view.startsWith('dm:')) {
-    fetch(`/api/chat/scrollback?room=${encodeURIComponent(view)}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.messages && currentView === view) {
-          handleEvent({ data: JSON.stringify({ type: 'scrollback', messages: data.messages }) })
-        }
-      })
-      .catch(() => {})
+  // Restore cached content or fetch scrollback
+  if (viewCache.has(view)) {
+    messages.innerHTML = viewCache.get(view)
+    forceScrollToBottom()
+  } else {
+    messages.innerHTML = ''
+    if (!view.startsWith('dm:')) {
+      fetch(`/api/chat/scrollback?room=${encodeURIComponent(view)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.messages && currentView === view) {
+            handleEvent({ data: JSON.stringify({ type: 'scrollback', messages: data.messages }) })
+          }
+        })
+        .catch(() => {})
+    }
   }
 }
 

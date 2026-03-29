@@ -48,41 +48,53 @@ export class Room {
   constructor(persona, options = {}) {
     this.persona = persona
     this.roomName = options.roomName || null
-    this.messages = []
-    this.systemPrompt = null
-    this.tools = null
-    this.memory = null
-    this.state = null
-    this.chatLog = null
-    this.busy = false
-    this.lastActivity = Date.now()
-    this.idleTimer = null
-    this.clients = new Set() // connected SSE clients
-    this.participants = new Map() // name → last seen timestamp
-    this.history = []
-    this.roomClients = new Map() // name → RoomClient
-    this._pendingRoom = null // which room the current response targets
-    this._messageQueue = [] // queued messages while busy
-    this._idleInterval = IDLE_THOUGHT_INTERVAL // backs off with consecutive idle thoughts
-    this._consecutiveDegenerateCount = 0
+
+    // Channel state — per room instance (SSE clients, participants)
+    this.clients = new Set()
+    this.participants = new Map()
     this._heartbeatTimer = null
-    this._destroyed = false
-    this._sessionStartHandled = false
-    this.modality = null // initialized in initialize() if modal config present
 
-    // RAFT-like rotating leadership for multi-agent turn-taking
-    this._leaderPool = [persona.config.display_name]
-    for (const agent of persona.config.agents || []) {
-      this._leaderPool.push(agent.name)
+    // Agent state — single thread of awareness.
+    // All rooms share one _a object. Scalars, arrays, everything on _a
+    // is visible to all rooms because they hold the same reference.
+    if (options.agent) {
+      this._a = options.agent
+    } else {
+      this._a = {
+        messages: [],
+        systemPrompt: null,
+        tools: null,
+        memory: null,
+        state: null,
+        chatLog: null,
+        registry: null,
+        modality: null,
+        busy: false,
+        lastActivity: Date.now(),
+        idleTimer: null,
+        history: [],
+        roomClients: new Map(),
+        _pendingRoom: null,
+        _messageQueue: [],
+        _idleInterval: IDLE_THOUGHT_INTERVAL,
+        _consecutiveDegenerateCount: 0,
+        _destroyed: false,
+        _sessionStartHandled: false,
+        _pendingContextMessages: [],
+        _leaderPool: [persona.config.display_name],
+        _leaderIndex: 0,
+        _wakeupSchedulers: [],
+      }
+      for (const a of persona.config.agents || []) {
+        this._a._leaderPool.push(a.name)
+      }
     }
-    this._leaderIndex = 0
 
-    // Venue awareness: derive domain from office_url and room configs
+    // Venue awareness
     const officeUrl = persona.config.office_url
     if (officeUrl) {
       try {
-        const parsed = new URL(officeUrl)
-        this.homeDomain = parsed.hostname
+        this.homeDomain = new URL(officeUrl).hostname
       } catch {
         this.homeDomain = null
       }
@@ -95,8 +107,55 @@ export class Room {
         this.roomDomains.set(roomConfig.name, roomConfig.domain)
       }
     }
-
   }
+
+  // Agent state accessors — all rooms see the same values
+  get messages() { return this._a.messages }
+  set messages(v) { this._a.messages = v }
+  get systemPrompt() { return this._a.systemPrompt }
+  set systemPrompt(v) { this._a.systemPrompt = v }
+  get tools() { return this._a.tools }
+  set tools(v) { this._a.tools = v }
+  get memory() { return this._a.memory }
+  set memory(v) { this._a.memory = v }
+  get state() { return this._a.state }
+  set state(v) { this._a.state = v }
+  get chatLog() { return this._a.chatLog }
+  set chatLog(v) { this._a.chatLog = v }
+  get registry() { return this._a.registry }
+  set registry(v) { this._a.registry = v }
+  get modality() { return this._a.modality }
+  set modality(v) { this._a.modality = v }
+  get busy() { return this._a.busy }
+  set busy(v) { this._a.busy = v }
+  get lastActivity() { return this._a.lastActivity }
+  set lastActivity(v) { this._a.lastActivity = v }
+  get idleTimer() { return this._a.idleTimer }
+  set idleTimer(v) { this._a.idleTimer = v }
+  get history() { return this._a.history }
+  set history(v) { this._a.history = v }
+  get roomClients() { return this._a.roomClients }
+  set roomClients(v) { this._a.roomClients = v }
+  get _pendingRoom() { return this._a._pendingRoom }
+  set _pendingRoom(v) { this._a._pendingRoom = v }
+  get _messageQueue() { return this._a._messageQueue }
+  set _messageQueue(v) { this._a._messageQueue = v }
+  get _idleInterval() { return this._a._idleInterval }
+  set _idleInterval(v) { this._a._idleInterval = v }
+  get _consecutiveDegenerateCount() { return this._a._consecutiveDegenerateCount }
+  set _consecutiveDegenerateCount(v) { this._a._consecutiveDegenerateCount = v }
+  get _destroyed() { return this._a._destroyed }
+  set _destroyed(v) { this._a._destroyed = v }
+  get _sessionStartHandled() { return this._a._sessionStartHandled }
+  set _sessionStartHandled(v) { this._a._sessionStartHandled = v }
+  get _pendingContextMessages() { return this._a._pendingContextMessages }
+  set _pendingContextMessages(v) { this._a._pendingContextMessages = v }
+  get _leaderPool() { return this._a._leaderPool }
+  set _leaderPool(v) { this._a._leaderPool = v }
+  get _leaderIndex() { return this._a._leaderIndex }
+  set _leaderIndex(v) { this._a._leaderIndex = v }
+  get _wakeupSchedulers() { return this._a._wakeupSchedulers }
+  set _wakeupSchedulers(v) { this._a._wakeupSchedulers = v }
 
   async initialize() {
     if (this.systemPrompt) return // already initialized
@@ -104,8 +163,7 @@ export class Room {
     const { dir, config, plugins } = this.persona
     this.memory = new Memory(dir, config.memory?.dir || 'memory/')
     this.state = new State(dir)
-    const roomSlug = this.roomName ? this.roomName.replace(/[^a-zA-Z0-9_-]/g, '_') : null
-    this.chatLog = new ChatLog(dir, roomSlug ? `history-${roomSlug}` : 'history')
+    this.chatLog = new ChatLog(dir, 'history')
     await this.state.load()
     this.systemPrompt = await assemblePrompt(dir, config, plugins)
     this.registry = new ProviderRegistry(config)
@@ -325,6 +383,20 @@ export class Room {
   }
 
   _handleRemoteEvent(event) {
+    // Ignore DM user_message events — they're handled via dm_request
+    if (event.to && event.type === 'user_message') return
+
+    if (event.type === 'dm_request') {
+      const myName = this.persona.config.display_name
+      if (event.to === myName) {
+        console.log(`[${this.persona.config.name}] Processing DM from ${event.from}`)
+        this.processDM(event.from, event.text).catch(err => {
+          console.error(`[${this.persona.config.name}] DM error:`, err.message)
+        })
+      }
+      return
+    }
+
     if (event.type === 'user_message') {
       if (event.scrollback) {
         this._safeAppendMessage({ role: 'user', content: `${event.name}: ${event.text}` })
@@ -402,6 +474,7 @@ export class Room {
       if (!this.systemPrompt) await this.initialize()
 
       this.messages.push({ role: 'user', content: `(DM from ${from}): ${text}` })
+      this.recordHistory({ type: 'user_message', name: from, text: `(DM) ${text}` })
 
       const hasModality = this.modality?.isModal
       const hasOrchestrator = !hasModality && this.persona.config.orchestrator != null
@@ -461,8 +534,16 @@ export class Room {
 
       // Route response back as a DM
       if (assistantText.trim()) {
-        if (this._roomManager) {
-          const agentName = this.persona.config.display_name
+        this.recordHistory({ type: 'assistant_message', text: `(DM to ${from}) ${assistantText.trim()}` })
+        const agentName = this.persona.config.display_name
+        if (this.roomClients.size > 0) {
+          // Visitor agent — send DM response back via room client to host
+          for (const client of this.roomClients.values()) {
+            await client.sendDMResponse(from, assistantText.trim())
+            break
+          }
+        } else if (this._roomManager) {
+          // Host agent — route directly via room manager
           this._roomManager.routeDM(agentName, from, assistantText.trim(), true)
         }
       }
@@ -477,6 +558,25 @@ export class Room {
         this._pendingContextMessages = []
       }
       this._startIdleTimer()
+
+      // Drain queued messages
+      if (this._messageQueue.length > 0) {
+        const next = this._messageQueue.shift()
+        if (next.room === 'dm') {
+          this.processDM(next.name, next.text).catch(err => {
+            console.error(`[${this.persona.config.name}] Queued DM error:`, err.message)
+          })
+        } else if (next.name === 'webhook') {
+          // Don't batch here — let _processMessage's finally handle webhook batching
+          this._processMessage(next.room, next.name, next.text).catch(err => {
+            console.error(`[${this.persona.config.name}] Queued message error:`, err.message)
+          })
+        } else {
+          this._processMessage(next.room, next.name, next.text).catch(err => {
+            console.error(`[${this.persona.config.name}] Queued message error:`, err.message)
+          })
+        }
+      }
     }
   }
 
@@ -730,9 +830,15 @@ export class Room {
         })
       } else if (this._messageQueue.length > 0) {
         const next = this._messageQueue.shift()
-        this._processMessage(next.room, next.name, next.text).catch(err => {
-          console.error(`[${this.persona.config.name}] Queue processing error:`, err.message)
-        })
+        if (next.room === 'dm') {
+          this.processDM(next.name, next.text).catch(err => {
+            console.error(`[${this.persona.config.name}] Queued DM processing error:`, err.message)
+          })
+        } else {
+          this._processMessage(next.room, next.name, next.text).catch(err => {
+            console.error(`[${this.persona.config.name}] Queue processing error:`, err.message)
+          })
+        }
       }
     }
   }

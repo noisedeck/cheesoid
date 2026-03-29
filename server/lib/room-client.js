@@ -91,6 +91,10 @@ export class RoomClient {
     return this._post({ message: text, name: this.agentName, ...options })
   }
 
+  async sendDMResponse(to, text) {
+    return this._post({ message: text, name: this.agentName, dm_to: to })
+  }
+
   async sendEvent(event) {
     const url = new URL('/api/chat/event', this.url)
     const body = JSON.stringify({ name: this.agentName, event })
