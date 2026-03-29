@@ -11,6 +11,7 @@ describe('Modality', () => {
   it('starts in attention mode', () => {
     const m = new Modality(config)
     assert.equal(m.mode, 'attention')
+    assert.equal(m.model, 'claude-haiku-3-5:anthropic')
   })
 
   it('steps up to cognition', () => {
@@ -19,6 +20,7 @@ describe('Modality', () => {
     assert.equal(m.mode, 'cognition')
     assert.equal(result.previous, 'attention')
     assert.equal(result.current, 'cognition')
+    assert.equal(m.model, 'claude-sonnet-4-5:anthropic')
   })
 
   it('steps down to attention', () => {
@@ -28,6 +30,7 @@ describe('Modality', () => {
     assert.equal(m.mode, 'attention')
     assert.equal(result.previous, 'cognition')
     assert.equal(result.current, 'attention')
+    assert.equal(m.model, 'claude-haiku-3-5:anthropic')
   })
 
   it('step_up from cognition is a no-op', () => {
@@ -90,5 +93,6 @@ describe('Modality', () => {
     const m = new Modality(null)
     assert.equal(m.isModal, false)
     assert.equal(m.mode, null)
+    assert.equal(m.model, null)
   })
 })
