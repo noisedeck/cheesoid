@@ -35,6 +35,12 @@ router.get('/api/chat/stream', (req, res) => {
   res.flushHeaders()
 
   room.addClient(res, name, req.isAgent)
+
+  // Also register for DM delivery in hub mode
+  const { rooms } = req.app.locals
+  if (rooms && rooms.isHub) {
+    rooms.addDMClient(res, name)
+  }
 })
 
 // Send a message to a room or DM

@@ -44,8 +44,9 @@ If nothing is weighing on you, simply say so briefly and move on.`
  * All connected clients see all messages. One agent, many humans.
  */
 export class Room {
-  constructor(persona) {
+  constructor(persona, options = {}) {
     this.persona = persona
+    this.roomName = options.roomName || null
     this.messages = []
     this.systemPrompt = null
     this.tools = null
@@ -205,7 +206,8 @@ export class Room {
 
   // Send event to all connected clients
   broadcast(event) {
-    const data = `data: ${JSON.stringify(event)}\n\n`
+    const tagged = this.roomName ? { ...event, room: this.roomName } : event
+    const data = `data: ${JSON.stringify(tagged)}\n\n`
     for (const client of this.clients) {
       client.write(data)
     }

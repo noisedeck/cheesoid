@@ -16,7 +16,7 @@ export class RoomManager {
     const hostedRooms = persona.config.hosted_rooms || []
     if (hostedRooms.length > 0) {
       for (const name of hostedRooms) {
-        this._rooms.set(name, new Room(persona))
+        this._rooms.set(name, new Room(persona, { roomName: name }))
       }
     } else {
       // Legacy single-room mode
