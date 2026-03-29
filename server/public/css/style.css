@@ -267,6 +267,46 @@ main {
   color: var(--hf-text-muted);
 }
 
+/* DM welcome header */
+.dm-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--hf-space-6) var(--hf-space-4) var(--hf-space-2);
+}
+
+.dm-welcome-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--hf-radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: var(--hf-size-lg);
+  color: var(--hf-text-on-accent, #fff);
+}
+
+.dm-welcome-name {
+  font-size: var(--hf-size-lg);
+  font-weight: 700;
+  margin-top: var(--hf-space-2);
+  color: var(--hf-text);
+}
+
+.dm-welcome-desc {
+  font-size: var(--hf-size-sm);
+  color: var(--hf-text-dim);
+  margin-top: var(--hf-space-1);
+}
+
+.dm-welcome-divider {
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--hf-border);
+  margin-top: var(--hf-space-4);
+}
+
 .system-message {
   color: var(--hf-text-dim);
   font-size: var(--hf-size-sm);

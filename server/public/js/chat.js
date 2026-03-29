@@ -267,6 +267,29 @@ function handleEvent(e) {
           lastSender = null
         }
       }
+      // DM welcome header — always shown at top of DM views
+      if (currentView && currentView.startsWith('dm:')) {
+        const dmPeerName = currentView.replace('dm:', '')
+        const header = document.createElement('div')
+        header.className = 'dm-welcome'
+        const avatar = document.createElement('div')
+        avatar.className = 'dm-welcome-avatar'
+        avatar.style.background = nameColor(dmPeerName)
+        avatar.textContent = dmPeerName.charAt(0).toUpperCase()
+        header.appendChild(avatar)
+        const dmName = document.createElement('div')
+        dmName.className = 'dm-welcome-name'
+        dmName.textContent = dmPeerName
+        header.appendChild(dmName)
+        const desc = document.createElement('div')
+        desc.className = 'dm-welcome-desc'
+        desc.textContent = `This is the beginning of your chat with ${dmPeerName}.`
+        header.appendChild(desc)
+        const divider = document.createElement('hr')
+        divider.className = 'dm-welcome-divider'
+        header.appendChild(divider)
+        messages.prepend(header)
+      }
       forceScrollToBottom()
       break
 
