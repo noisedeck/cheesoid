@@ -16,11 +16,14 @@ export class RoomManager {
     const hostedRooms = persona.config.hosted_rooms || []
     if (hostedRooms.length > 0) {
       for (const name of hostedRooms) {
-        this._rooms.set(name, new Room(persona, { roomName: name }))
+        const room = new Room(persona, { roomName: name })
+        room._roomManager = this
+        this._rooms.set(name, room)
       }
     } else {
       // Legacy single-room mode
       this._defaultRoom = new Room(persona)
+      this._defaultRoom._roomManager = this
     }
   }
 
@@ -42,6 +45,9 @@ export class RoomManager {
   }
 
   routeDM(from, to, text, isAgent) {
+    // Don't process self-DMs
+    if (from === to) return
+
     const event = {
       type: 'user_message',
       from,
@@ -60,14 +66,14 @@ export class RoomManager {
       }
     }
 
-    // If recipient is the hub's own agent, trigger processing
+    // If recipient is the hub's own agent, process and reply via DM
     const agentName = this.persona.config.display_name
     if (to === agentName) {
       const room = this.isHub
         ? this._rooms.values().next().value
         : this._defaultRoom
       if (room) {
-        room.sendMessage(from, text).catch(err => {
+        room.processDM(from, text).catch(err => {
           console.error(`[${this.persona.config.name}] DM processing error:`, err.message)
         })
       }

@@ -280,7 +280,8 @@ export class Room {
     if (options.trigger) {
       // Trigger processing with a nudge — the original message is already in context,
       // the backchannel just wakes the agent up to respond to what's there.
-      this._processMessage('home', 'system', `(backchannel from ${name}) ${text} — respond to the conversation above.`).catch(err => {
+      // Use _silent flag to prevent broadcasting/recording the trigger message.
+      this._processMessage('home', 'system', `(backchannel from ${name}) ${text} — respond to the conversation above.`, { _silent: true }).catch(err => {
         console.error(`[${this.persona.config.name}] Triggered backchannel error:`, err.message)
       })
     }
@@ -330,6 +331,7 @@ export class Room {
       } else if (event.fromAgent) {
         // Another agent spoke — context only, don't trigger a response
         this._safeAppendMessage({ role: 'user', content: `${event.name}: ${event.text}` })
+        this.recordHistory({ type: 'user_message', name: event.name, text: event.text })
       } else {
         // Human message — check turn-taking leader + modality shift
         const myName = this.persona.config.display_name
@@ -348,6 +350,7 @@ export class Room {
         } else if (event.leader && event.leader !== myName) {
           this._safeAppendMessage({ role: 'user', content: `${event.name}: ${event.text}` })
           this._safeAppendMessage({ role: 'user', content: `(system) ${event.leader} has the floor for this message.` })
+          this.recordHistory({ type: 'user_message', name: event.name, text: event.text })
           console.log(`[${this.persona.config.name}] Deferring to ${event.leader}`)
         } else {
           console.log(`[${this.persona.config.name}] Taking the floor`)
@@ -357,10 +360,11 @@ export class Room {
     } else if (event.type === 'assistant_message') {
       // Host agent responded — context only, don't trigger
       this._safeAppendMessage({ role: 'user', content: `${event.name || 'assistant'}: ${event.text}` })
+      this.recordHistory({ type: 'assistant_message', name: event.name, text: event.text })
     } else if (event.type === 'backchannel') {
       this._safeAppendMessage({ role: 'user', content: `(backchannel) ${event.name}: ${event.text}` })
       if (event.trigger) {
-        this._processMessage(event.room, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above.`)
+        this._processMessage(event.room, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above.`, { _silent: true })
       }
     }
   }
@@ -383,7 +387,100 @@ export class Room {
     await this._processMessage('home', name, userMessage)
   }
 
-  async _processMessage(room, name, text) {
+  /**
+   * Process a DM to this agent. Runs the agent loop but routes the response
+   * back as a DM instead of broadcasting to the room. No leader election.
+   */
+  async processDM(from, text) {
+    if (this.busy) {
+      this._messageQueue.push({ room: 'dm', name: from, text })
+      return
+    }
+
+    this.busy = true
+    try {
+      if (!this.systemPrompt) await this.initialize()
+
+      this.messages.push({ role: 'user', content: `(DM from ${from}): ${text}` })
+
+      const hasModality = this.modality?.isModal
+      const hasOrchestrator = !hasModality && this.persona.config.orchestrator != null
+      let orchestratorModel, orchestratorProvider, executorModel
+
+      // DMs always use cognition if modal
+      if (hasModality) {
+        if (this.modality) this.modality.stepUp('direct message')
+        const modalModel = this.modality.model
+        const resolved = this.registry.resolve(modalModel)
+        orchestratorModel = resolved.modelId
+        orchestratorProvider = resolved.provider
+        executorModel = this.persona.config.model
+      } else if (hasOrchestrator) {
+        const orchModelStr = typeof this.persona.config.orchestrator === 'string'
+          ? this.persona.config.orchestrator
+          : this.persona.config.orchestrator.model
+        const orchResolved = this.registry.resolve(orchModelStr)
+        orchestratorModel = orchResolved.modelId
+        orchestratorProvider = orchResolved.provider
+        executorModel = this.persona.config.model
+      } else {
+        const mainResolved = this.registry.resolve(this.persona.config.model)
+        orchestratorModel = mainResolved.modelId
+        orchestratorProvider = mainResolved.provider
+      }
+
+      const agentConfig = {
+        model: orchestratorModel,
+        maxTurns: 10,
+        thinkingBudget: this.persona.config.chat?.thinking_budget || null,
+        serverTools: this.persona.config.server_tools || [],
+        provider: orchestratorProvider,
+        executorProvider: null,
+        executorModel: (hasOrchestrator || hasModality) ? executorModel : null,
+        executorFallbackModels: (hasOrchestrator || hasModality) ? (this.persona.config.fallback_models || []) : [],
+        orchestratorFallbackModels: (hasOrchestrator || hasModality)
+          ? (this.persona.config.orchestrator_fallback_models || this.persona.config.cognition_fallback_models || [])
+          : [],
+        registry: this.registry,
+        modality: null, // no gear shifting in DMs
+      }
+
+      let assistantText = ''
+      const onEvent = () => {} // DMs don't stream to room
+
+      const activeIsClaude = orchestratorModel.startsWith('claude')
+      const basePrompt = activeIsClaude
+        ? this.systemPrompt
+        : await assemblePrompt(this.persona.dir, this.persona.config, this.persona.plugins, { isClaude: false })
+      const prompt = replaceTimestamp(basePrompt)
+      const agentFn = (hasOrchestrator || hasModality) ? runHybridAgent : runAgent
+      const result = await agentFn(prompt, this.messages, this.tools, agentConfig, (event) => {
+        if (event.type === 'text_delta') assistantText += event.text
+      })
+      this.messages = result.messages
+
+      // Route response back as a DM
+      if (assistantText.trim()) {
+        if (this._roomManager) {
+          const agentName = this.persona.config.display_name
+          this._roomManager.routeDM(agentName, from, assistantText.trim(), true)
+        }
+      }
+    } catch (err) {
+      console.error(`[${this.persona.config.name}] DM error:`, err.message)
+    } finally {
+      this.busy = false
+      if (this._pendingContextMessages && this._pendingContextMessages.length > 0) {
+        for (const msg of this._pendingContextMessages) {
+          this.messages.push(msg)
+        }
+        this._pendingContextMessages = []
+      }
+      this._startIdleTimer()
+    }
+  }
+
+  async _processMessage(room, name, text, options = {}) {
     if (this.busy) {
       if (room === 'home' && name === 'webhook') {
         // Queue webhooks — they can't retry and shouldn't be dropped
@@ -436,7 +533,7 @@ export class Room {
         console.log(`[${this.persona.config.name}] Turn leader: ${leader} (pool: ${this._leaderPool.join(', ')})`)
       }
 
-      if (room === 'home') {
+      if (room === 'home' && !options._silent) {
         if (name) this.participants.set(name, Date.now())
         this.broadcast({ type: 'user_message', name, text, leader })
         this.recordHistory({ type: 'user_message', name, text })
@@ -461,6 +558,19 @@ export class Room {
           this.broadcast({ type: 'done', model: null, deferred: true })
         }
         return // skip agent loop — finally block handles cleanup
+      }
+
+      // Inject leader duties into context so the elected leader knows their role
+      if (leader && leader === myName) {
+        const otherAgents = this._leaderPool.filter(n => n !== myName).join(', ')
+        this.messages.push({ role: 'user', content: [
+          `(system) You are the elected leader for this message. Your duties:`,
+          `1. Read the message and decide who should respond.`,
+          `2. If the message is addressed to everyone or the group — you MUST call internal({ backchannel: "All agents respond", trigger: true }) BEFORE your own response. ${otherAgents} cannot speak unless you trigger them.`,
+          `3. If the message is meant for a specific other agent — call internal({ backchannel: "This is for you", trigger: true }) to hand off.`,
+          `4. If the message is just for you — respond normally, no trigger needed.`,
+          `Other agents are silent until you trigger them. If you skip the trigger, they stay silent. This is your responsibility.`,
+        ].join('\n') })
       }
 
       // Determine mode: modal (attention/cognition), hybrid (orchestrator), or direct
@@ -566,6 +676,13 @@ export class Room {
         const client = this.roomClients.get(this._pendingRoom)
         if (client && assistantText.trim()) {
           await client.sendMessage(assistantText.trim(), { model: assistantModel })
+        }
+        // Record remote interactions in own history for continuity across restarts
+        this.recordHistory({ type: 'user_message', name, text })
+        if (assistantText.trim()) {
+          const histEntry = { type: 'assistant_message', text: assistantText.trim() }
+          if (assistantModel) histEntry.model = assistantModel
+          this.recordHistory(histEntry)
         }
         this._autoNudgeMentionedAgents(assistantText)
       }

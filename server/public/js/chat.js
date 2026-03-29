@@ -275,7 +275,7 @@ function handleEvent(e) {
         if (vToolDetails) vToolDetails.open = false
         visitorStreams.delete(event.name)
       } else {
-        appendMessage('user', event.text, event.name, null, event.fromAgent, event.model)
+        appendMessage('user', event.text, event.name || event.from, null, event.fromAgent, event.model)
       }
       if (!event.fromAgent) {
         assistantEl = appendMessage('assistant', '')
