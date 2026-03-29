@@ -933,14 +933,15 @@ export class Room {
       let idleText = ''
       let idleModel = null
       let toolUseCount = 0
+      const agentName = this.persona.config.display_name
       const onEvent = (event) => {
         try {
           if (event.type === 'text_delta') {
             idleText += event.text
-            this.broadcast({ type: 'idle_text_delta', text: event.text })
+            this.broadcast({ type: 'idle_text_delta', text: event.text, name: agentName })
           } else if (event.type === 'done') {
             if (event.model) idleModel = event.model
-            this.broadcast({ type: 'idle_done', model: event.model })
+            this.broadcast({ type: 'idle_done', model: event.model, name: agentName })
           } else if (event.type === 'tool_start') {
             toolUseCount++
             this.broadcast({ ...event, idle: true })
@@ -977,7 +978,7 @@ export class Room {
         this.messages = this.messages.slice(-MAX_CONTEXT_MESSAGES)
       }
       if (idleText) {
-        const histEntry = { type: 'idle_thought', text: idleText }
+        const histEntry = { type: 'idle_thought', text: idleText, name: agentName }
         if (idleModel) histEntry.model = idleModel
         this.recordHistory(histEntry)
       }

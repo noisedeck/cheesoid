@@ -255,8 +255,15 @@ main {
   border-radius: 0 var(--hf-radius-sm) var(--hf-radius-sm) 0;
 }
 
-.idle-thought::before {
-  content: '(idle thought) ';
+.idle-thought-name {
+  font-weight: 600;
+  font-style: normal;
+  margin-right: var(--hf-space-2);
+}
+
+.idle-thought-name::after {
+  content: ' is thinking...';
+  font-weight: 400;
   color: var(--hf-text-muted);
 }
 

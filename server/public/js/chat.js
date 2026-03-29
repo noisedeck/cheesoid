@@ -256,7 +256,14 @@ function handleEvent(e) {
         } else if (msg.type === 'idle_thought' || msg.type === 'system') {
           const el = document.createElement('div')
           el.className = msg.type === 'system' ? 'system-message' : 'idle-thought'
-          const metaHtml = `<div class="inline-meta"><span class="message-time">${formatTime(msg.timestamp)}</span>${msg.model ? `<span class="message-model">${escapeHtml(msg.model)}</span>` : ''}</div>`
+          if (msg.type === 'idle_thought' && msg.name) {
+            el.style.borderLeftColor = nameColor(msg.name)
+            el.dataset.agent = msg.name
+          }
+          const nameHtml = (msg.type === 'idle_thought' && msg.name)
+            ? `<span class="idle-thought-name" style="color:${nameColor(msg.name)}">${escapeHtml(msg.name)}</span>`
+            : ''
+          const metaHtml = `<div class="inline-meta">${nameHtml}<span class="message-time">${formatTime(msg.timestamp)}</span>${msg.model ? `<span class="message-model">${escapeHtml(msg.model)}</span>` : ''}</div>`
           el.innerHTML = metaHtml + renderMarkdown(msg.text)
           messages.appendChild(el)
           lastSender = null
@@ -485,8 +492,19 @@ function handleEvent(e) {
       if (!idleEl) {
         idleEl = document.createElement('div')
         idleEl.className = 'idle-thought'
+        if (event.name) {
+          idleEl.style.borderLeftColor = nameColor(event.name)
+          idleEl.dataset.agent = event.name
+        }
         const idleMeta = document.createElement('div')
         idleMeta.className = 'inline-meta'
+        if (event.name) {
+          const idleName = document.createElement('span')
+          idleName.className = 'idle-thought-name'
+          idleName.textContent = event.name
+          idleName.style.color = nameColor(event.name)
+          idleMeta.appendChild(idleName)
+        }
         const idleTime = document.createElement('span')
         idleTime.className = 'message-time'
         idleTime.textContent = formatTime(Date.now())

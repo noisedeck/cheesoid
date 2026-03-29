@@ -128,9 +128,10 @@ function buildRoomTools(room, config) {
         const parts = []
 
         if (input.thought) {
-          room.broadcast({ type: 'idle_text_delta', text: input.thought })
-          room.broadcast({ type: 'idle_done' })
-          room.recordHistory({ type: 'idle_thought', text: input.thought })
+          const agentName = room.persona.config.display_name
+          room.broadcast({ type: 'idle_text_delta', text: input.thought, name: agentName })
+          room.broadcast({ type: 'idle_done', name: agentName })
+          room.recordHistory({ type: 'idle_thought', text: input.thought, name: agentName })
           parts.push(`Thought: ${input.thought}`)
         }
 

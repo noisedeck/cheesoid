@@ -86,8 +86,8 @@ describe('internal tool', () => {
     assert.ok(!result.is_error)
 
     const calls = room.broadcast.mock.calls.map(c => c.arguments[0])
-    assert.ok(calls.some(c => c.type === 'idle_text_delta' && c.text === 'This is interesting.'))
-    assert.ok(calls.some(c => c.type === 'idle_done'))
+    assert.ok(calls.some(c => c.type === 'idle_text_delta' && c.text === 'This is interesting.' && c.name === 'TestAgent'))
+    assert.ok(calls.some(c => c.type === 'idle_done' && c.name === 'TestAgent'))
 
     const historyCalls = room.recordHistory.mock.calls.map(c => c.arguments[0])
     assert.ok(historyCalls.some(c => c.type === 'idle_thought' && c.text === 'This is interesting.'))
