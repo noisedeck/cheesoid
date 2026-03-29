@@ -6,7 +6,7 @@ import { buildSharedWorkspaceTools } from './shared-workspace.js'
  * Build the full tool set for a persona: memory tools + persona-specific tools.
  * Returns { definitions: [...], execute: async (name, input) => result }
  */
-export async function loadTools(personaDir, config, memory, state, room, registry) {
+export async function loadTools(personaDir, config, memory, state, room, registry, modality) {
   const memoryTools = buildMemoryTools(memory, state)
   const sharedTools = buildSharedWorkspaceTools(process.env.SHARED_WORKSPACE_PATH || '/shared')
   const roomTools = buildRoomTools(room, config)
@@ -23,7 +23,10 @@ export async function loadTools(personaDir, config, memory, state, room, registr
     }
   }
 
-  const allDefinitions = [...memoryTools.definitions, ...sharedTools.definitions, ...roomTools.definitions, ...reasonerTools.definitions, ...personaTools.definitions]
+  // Modality tools (attention/cognition gear shifting)
+  const modalityTools = buildModalityTools(modality)
+
+  const allDefinitions = [...memoryTools.definitions, ...sharedTools.definitions, ...roomTools.definitions, ...reasonerTools.definitions, ...modalityTools.definitions, ...personaTools.definitions]
 
   async function execute(name, input, options) {
     if (memoryTools.handles(name)) {
@@ -37,6 +40,9 @@ export async function loadTools(personaDir, config, memory, state, room, registr
     }
     if (reasonerTools.handles(name)) {
       return reasonerTools.execute(name, input, options)
+    }
+    if (modalityTools.handles(name)) {
+      return modalityTools.execute(name, input)
     }
     return personaTools.execute(name, input)
   }
@@ -329,4 +335,19 @@ function buildReasonerTools(config, registry) {
   }
 
   return { definitions, handles: (name) => name === 'deep_think', execute }
+}
+
+function buildModalityTools(modality) {
+  if (!modality?.isModal) {
+    return { definitions: [], handles: () => false, execute: async () => ({ error: 'unknown tool' }) }
+  }
+
+  const definitions = modality.toolDefinitions()
+  const toolNames = new Set(definitions.map(d => d.name))
+
+  async function execute(name, input) {
+    return modality.executeTool(name, input)
+  }
+
+  return { definitions, handles: (name) => toolNames.has(name), execute }
 }

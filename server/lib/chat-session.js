@@ -111,7 +111,7 @@ export class Room {
       })
     }
 
-    this.tools = await loadTools(dir, config, this.memory, this.state, this, this.registry)
+    this.tools = await loadTools(dir, config, this.memory, this.state, this, this.registry, this.modality)
 
     // Replay recent history into agent context
     const recent = await this.chatLog.recent(MAX_HISTORY)
