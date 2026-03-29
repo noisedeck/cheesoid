@@ -577,6 +577,34 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     consecutiveToolCalls++
     totalToolTurns++
 
+    // --- MODALITY: step_up re-run ---
+    // If a modality step_up tool was called, discard the attention response
+    // and re-run this turn with the cognition model.
+    if (config.modality) {
+      const stepUpBlock = assistantContent.find(b => b.type === 'tool_use' && b.name === 'step_up')
+      if (stepUpBlock) {
+        // Check if the tool result indicates an actual mode change
+        const stepUpResult = toolResults.find(r => r.tool_use_id === stepUpBlock.id)
+        if (stepUpResult) {
+          // Remove the attention model's assistant message and tool results
+          messages.pop() // remove assistant message with step_up call
+
+          // Re-resolve model from modality (now cognition)
+          const newModel = config.modality.model
+          const resolved = config.registry.resolve(newModel)
+          config.model = resolved.modelId
+          config.provider = resolved.provider
+
+          console.log(`[hybrid] step_up: re-running turn with ${resolved.modelId}`)
+
+          // Don't count this as an iteration — we're re-running, not advancing
+          consecutiveToolCalls--
+          totalToolTurns--
+          continue // re-enters the while loop with the cognition model
+        }
+      }
+    }
+
     // --- EXECUTOR TOOL LOOP ---
     // The cheap executor processes tool results and can call follow-up tools.
     // It sees only results + tool definitions — no persona, no history.
