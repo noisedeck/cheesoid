@@ -63,6 +63,7 @@ export class Room {
     this._pendingRoom = null // which room the current response targets
     this._messageQueue = [] // queued messages while busy
     this._idleInterval = IDLE_THOUGHT_INTERVAL // backs off with consecutive idle thoughts
+    this._consecutiveDegenerateCount = 0
     this._heartbeatTimer = null
     this._destroyed = false
     this._sessionStartHandled = false
@@ -94,7 +95,8 @@ export class Room {
     const { dir, config, plugins } = this.persona
     this.memory = new Memory(dir, config.memory?.dir || 'memory/')
     this.state = new State(dir)
-    this.chatLog = new ChatLog(dir)
+    const roomSlug = this.roomName ? this.roomName.replace(/[^a-zA-Z0-9_-]/g, '_') : null
+    this.chatLog = new ChatLog(dir, roomSlug ? `history-${roomSlug}` : 'history')
     await this.state.load()
     this.systemPrompt = await assemblePrompt(dir, config, plugins)
     this.registry = new ProviderRegistry(config)
@@ -225,14 +227,17 @@ export class Room {
     return domain ? `@${domain}` : ''
   }
 
-  addAgentMessage(name, text) {
+  addAgentMessage(name, text, { source = 'user' } = {}) {
     const taggedMessage = `[${this._timestamp()}][home/${name}${this._domainSuffix('home')}]: ${text}`
     this._safeAppendMessage({ role: 'user', content: taggedMessage })
     this.broadcast({ type: 'user_message', name, text, fromAgent: true })
     this.recordHistory({ type: 'user_message', name, text })
     this.lastActivity = Date.now()
     this._clearIdleTimer()
-    this._idleInterval = IDLE_THOUGHT_INTERVAL // reset backoff on any activity
+    this._consecutiveDegenerateCount = 0 // new info arrived, worth thinking about
+    if (source === 'user') {
+      this._idleInterval = IDLE_THOUGHT_INTERVAL // reset backoff on direct interaction only
+    }
     this._startIdleTimer()
   }
 
@@ -352,6 +357,7 @@ export class Room {
     this._clearIdleTimer()
     if (room === 'home') {
       this._idleInterval = IDLE_THOUGHT_INTERVAL // reset backoff on direct user activity only
+      this._consecutiveDegenerateCount = 0
     }
     this._pendingRoom = room
 
@@ -549,6 +555,7 @@ export class Room {
       // Wrap events as idle thoughts for the UI — broadcast errors must not
       // abort the agent call, so catch them individually
       let idleText = ''
+      let toolUseCount = 0
       const onEvent = (event) => {
         try {
           if (event.type === 'text_delta') {
@@ -556,7 +563,10 @@ export class Room {
             this.broadcast({ type: 'idle_text_delta', text: event.text })
           } else if (event.type === 'done') {
             this.broadcast({ type: 'idle_done' })
-          } else if (event.type === 'tool_start' || event.type === 'tool_result') {
+          } else if (event.type === 'tool_start') {
+            toolUseCount++
+            this.broadcast({ ...event, idle: true })
+          } else if (event.type === 'tool_result') {
             this.broadcast({ ...event, idle: true })
           }
         } catch (err) {
@@ -567,6 +577,18 @@ export class Room {
       const prompt = replaceTimestamp(this.systemPrompt)
       const agentFn = hasOrchestrator ? runHybridAgent : runAgent
       const result = await agentFn(prompt, idleMessages, this.tools, agentConfig, onEvent)
+
+      // Degenerate detection: discard if output is trivial with no real work
+      const outputTokens = (result.usage?.output_tokens || 0)
+      const isDegenerate = outputTokens <= 50
+        && toolUseCount === 0
+        && (!idleText || !idleText.trim())
+
+      if (isDegenerate) {
+        console.log(`[${this.persona.config.name}] Idle thought degenerate (${outputTokens} tokens, ${toolUseCount} tools, text=${!!idleText?.trim()}) — discarded`)
+        return 'degenerate'
+      }
+
       this.messages = result.messages
       if (idleText) {
         this.recordHistory({ type: 'idle_thought', text: idleText })
@@ -611,8 +633,20 @@ export class Room {
         // ALWAYS reschedule unless destroyed or something else already set a timer
         // (e.g. a message came in during the thought and restarted it)
         if (!this.idleTimer && !this._destroyed) {
-          if (completed) {
+          if (completed === 'degenerate') {
             this._idleInterval = Math.min(this._idleInterval * 2, MAX_IDLE_INTERVAL)
+            this._consecutiveDegenerateCount++
+
+            if (this._consecutiveDegenerateCount >= 5) {
+              console.log(`[${this.persona.config.name}] idle thoughts suspended after 5 consecutive degenerate results`)
+              return // don't reschedule
+            }
+          } else if (completed === true) {
+            this._idleInterval = Math.min(this._idleInterval * 2, MAX_IDLE_INTERVAL)
+            this._consecutiveDegenerateCount = 0
+          } else {
+            // completed === false (error/skipped) — don't change interval
+            this._consecutiveDegenerateCount = 0
           }
           this._startIdleTimer()
         }

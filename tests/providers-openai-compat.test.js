@@ -1,6 +1,8 @@
-import { describe, it } from 'node:test'
+import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { createOpenAICompatProvider, _processStream, _parseSSE } from '../server/lib/providers/openai-compat.js'
+import circuitBreaker from '../server/lib/circuit-breaker.js'
+import { CircuitOpenError } from '../server/lib/circuit-breaker.js'
 
 describe('createOpenAICompatProvider', () => {
   it('throws when base_url is missing', () => {
@@ -179,5 +181,62 @@ describe('_parseSSE', () => {
       chunks.push(chunk)
     }
     assert.equal(chunks.length, 1)
+  })
+})
+
+describe('circuit breaker integration', () => {
+  it('throws CircuitOpenError after repeated failures without making more fetches', async () => {
+    const deadUrl = 'http://dead-provider-cb-test.test:1234'
+    const provider = createOpenAICompatProvider({
+      base_url: deadUrl,
+      api_key: 'test-key',
+    })
+
+    // Mock fetch to always reject with a network error
+    let fetchCount = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async () => {
+      fetchCount++
+      throw new Error('connect ECONNREFUSED')
+    }
+
+    try {
+      // First call: 3 retries, all fail — trips the circuit breaker (threshold=3)
+      await assert.rejects(
+        () => provider.streamMessage({
+          model: 'test',
+          maxTokens: 100,
+          system: 'test',
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+          tools: [],
+          serverTools: [],
+        }, () => {}),
+        /fetch failed/,
+      )
+      assert.equal(fetchCount, 3, 'should have made 3 fetch attempts on first call')
+
+      // Second call: circuit is now open, should throw CircuitOpenError immediately
+      fetchCount = 0
+      await assert.rejects(
+        () => provider.streamMessage({
+          model: 'test',
+          maxTokens: 100,
+          system: 'test',
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+          tools: [],
+          serverTools: [],
+        }, () => {}),
+        (err) => {
+          assert.ok(err instanceof CircuitOpenError, 'should be CircuitOpenError')
+          assert.ok(err.isCircuitOpen, 'should have isCircuitOpen flag')
+          return true
+        },
+      )
+      assert.equal(fetchCount, 0, 'should NOT have made any fetch attempts when circuit is open')
+    } finally {
+      globalThis.fetch = originalFetch
+      // Clean up circuit breaker state for this URL
+      circuitBreaker.recordSuccess(deadUrl)
+    }
   })
 })

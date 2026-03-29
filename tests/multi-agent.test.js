@@ -256,6 +256,8 @@ describe('Multi-agent room', () => {
     servers.push(visitor)
 
     const bcSends = []
+    const realClient = visitor.room.roomClients.get('brad')
+    if (realClient) realClient.destroy()
     visitor.room.roomClients.set('brad', {
       sendBackchannel: (text, opts) => { bcSends.push({ text, ...opts }) },
       sendMessage: () => {},
@@ -287,6 +289,8 @@ describe('Multi-agent room', () => {
     if (!visitor.room.tools) await visitor.room.initialize()
 
     // Override the real RoomClient with our mock after initialization
+    const realClient = visitor.room.roomClients.get('brad')
+    if (realClient) realClient.destroy()
     visitor.room.roomClients.set('brad', mockClient)
 
     // Simulate being in a remote room

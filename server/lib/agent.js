@@ -1,3 +1,5 @@
+import { CircuitOpenError } from './circuit-breaker.js'
+
 /**
  * Heuristic intent classifier — determines tool vs text without an API call.
  * Returns 'required', 'none', or 'uncertain' (needs LLM classification).
@@ -382,7 +384,11 @@ async function callExecutorWithFallback(config, params, onEvent) {
       return { result, model: modelId }
     } catch (err) {
       lastErr = err
-      console.log(`[hybrid] executor ${modelId} failed: ${err.message}, trying next`)
+      if (err.isCircuitOpen) {
+        console.log(`[hybrid] executor ${modelId} skipped: circuit open for ${err.url}`)
+      } else {
+        console.log(`[hybrid] executor ${modelId} failed: ${err.message}, trying next`)
+      }
     }
   }
   throw lastErr || new Error('All executor models failed')

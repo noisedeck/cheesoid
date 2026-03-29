@@ -1,6 +1,7 @@
 import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { runHybridAgent } from '../server/lib/agent.js'
+import { CircuitOpenError } from '../server/lib/circuit-breaker.js'
 
 function makeTools(definitions = []) {
   const executeFn = mock.fn(async (name, input) => ({ output: `result of ${name}` }))
@@ -404,5 +405,59 @@ describe('runHybridAgent', () => {
     assert.equal(failingExecutor.streamMessage.mock.callCount(), 1)
     assert.equal(workingExecutor.streamMessage.mock.callCount(), 1)
     assert.ok(events.find(e => e.type === 'done'))
+  })
+
+  it('skips executor with CircuitOpenError and falls through to next model', async () => {
+    const deadProvider = {
+      streamMessage: mock.fn(async () => {
+        throw new CircuitOpenError('http://dead.provider', 30)
+      }),
+    }
+    const goodProvider = {
+      streamMessage: mock.fn(async (params, onEvent) => ({
+        contentBlocks: [{ type: 'text', text: 'done' }],
+        stopReason: 'end_turn',
+        usage: { input_tokens: 10, output_tokens: 5 },
+      })),
+    }
+
+    const orchestratorProvider = makeProvider({
+      responses: [
+        {
+          contentBlocks: [{ type: 'tool_use', id: 'toolu_1', name: 'bash', input: { command: 'ls' } }],
+          stopReason: 'tool_use',
+          usage: { input_tokens: 100, output_tokens: 20 },
+        },
+        {
+          contentBlocks: [{ type: 'text', text: 'Here are the files.' }],
+          stopReason: 'end_turn',
+          usage: { input_tokens: 200, output_tokens: 30 },
+        },
+      ],
+    })
+
+    const tools = makeTools([{ name: 'bash', description: 'Run command', input_schema: { type: 'object', properties: { command: { type: 'string' } } } }])
+
+    const mockRegistry = {
+      resolve: (modelStr) => {
+        if (modelStr === 'dead-model') return { modelId: 'dead-model', provider: deadProvider }
+        if (modelStr === 'good-model') return { modelId: 'good-model', provider: goodProvider }
+        return { modelId: modelStr, provider: orchestratorProvider }
+      },
+    }
+
+    const config = {
+      provider: orchestratorProvider,
+      model: 'orchestrator-model',
+      executorModel: 'dead-model',
+      executorFallbackModels: ['good-model'],
+      registry: mockRegistry,
+    }
+
+    const { events, onEvent } = collectEvents()
+    const result = await runHybridAgent('system', [{ role: 'user', content: 'list files' }], tools, config, onEvent)
+
+    assert.equal(deadProvider.streamMessage.mock.callCount(), 1)
+    assert.equal(goodProvider.streamMessage.mock.callCount(), 1)
   })
 })
