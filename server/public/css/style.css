@@ -168,6 +168,20 @@ main {
   color: var(--hf-text-muted);
 }
 
+.message-model {
+  font-size: var(--hf-size-xs);
+  color: var(--hf-text-muted);
+  margin-left: var(--hf-space-2);
+  opacity: 0.7;
+}
+
+.inline-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hf-space-1);
+  margin-bottom: 2px;
+}
+
 .message-body {
   font-size: var(--hf-size-base);
   color: var(--hf-text-normal);

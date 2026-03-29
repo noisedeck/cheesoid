@@ -23,6 +23,7 @@ let personaLabel = 'Cheesoid'
 let thinkingEl = null
 let sending = false
 let reconnectTimer = null
+let currentModel = null
 const visitorStreams = new Map() // agentName → { element, buffer }
 
 let hubMode = false
@@ -212,7 +213,7 @@ function handleEvent(e) {
         } else if (msg.type === 'assistant_message') {
           if (msg.name) {
             // Visiting agent message with optional tool summary
-            const el = appendMessage('assistant', '', msg.name, msg.timestamp, true)
+            const el = appendMessage('assistant', '', msg.name, msg.timestamp, true, msg.model)
             el.classList.add('visitor-message')
             el.style.borderLeftColor = nameColor(msg.name)
             const body = el.querySelector('.message-body')
@@ -225,14 +226,15 @@ function handleEvent(e) {
               body.innerHTML = content
             }
           } else {
-            const el = appendMessage('assistant', '', null, msg.timestamp)
+            const el = appendMessage('assistant', '', null, msg.timestamp, false, msg.model)
             const body = el.querySelector('.message-body')
             if (body) body.innerHTML = renderMarkdown(msg.text)
           }
         } else if (msg.type === 'idle_thought' || msg.type === 'system') {
           const el = document.createElement('div')
           el.className = msg.type === 'system' ? 'system-message' : 'idle-thought'
-          el.innerHTML = renderMarkdown(msg.text)
+          const metaHtml = `<div class="inline-meta"><span class="message-time">${formatTime(msg.timestamp)}</span>${msg.model ? `<span class="message-model">${escapeHtml(msg.model)}</span>` : ''}</div>`
+          el.innerHTML = metaHtml + renderMarkdown(msg.text)
           messages.appendChild(el)
           lastSender = null
         }
@@ -319,7 +321,18 @@ function handleEvent(e) {
         thinkingEl.remove()
         thinkingEl = null
       }
+      currentModel = event.model || null
       if (assistantEl) {
+        // Add model + timestamp to meta if available
+        if (currentModel) {
+          const meta = assistantEl.querySelector('.message-meta')
+          if (meta && !meta.querySelector('.message-model')) {
+            const modelSpan = document.createElement('span')
+            modelSpan.className = 'message-model'
+            modelSpan.textContent = currentModel
+            meta.appendChild(modelSpan)
+          }
+        }
         for (const tc of assistantEl.querySelectorAll('.tool-call')) tc.remove()
         // Extract thought tags and render as idle thoughts
         if (assistantBuffer.includes('<thought>')) {
@@ -356,15 +369,35 @@ function handleEvent(e) {
       if (!idleEl) {
         idleEl = document.createElement('div')
         idleEl.className = 'idle-thought'
+        const idleMeta = document.createElement('div')
+        idleMeta.className = 'inline-meta'
+        const idleTime = document.createElement('span')
+        idleTime.className = 'message-time'
+        idleTime.textContent = formatTime(Date.now())
+        idleMeta.appendChild(idleTime)
+        idleEl.appendChild(idleMeta)
+        const idleBody = document.createElement('span')
+        idleBody.className = 'idle-thought-body'
+        idleEl.appendChild(idleBody)
         messages.appendChild(idleEl)
         lastSender = null
       }
       idleBuffer += event.text
-      idleEl.innerHTML = renderMarkdown(idleBuffer)
+      const idleBody = idleEl.querySelector('.idle-thought-body')
+      if (idleBody) idleBody.innerHTML = renderMarkdown(idleBuffer)
       scrollToBottom()
       break
 
     case 'idle_done':
+      if (idleEl && event.model) {
+        const meta = idleEl.querySelector('.inline-meta')
+        if (meta) {
+          const modelSpan = document.createElement('span')
+          modelSpan.className = 'message-model'
+          modelSpan.textContent = event.model
+          meta.appendChild(modelSpan)
+        }
+      }
       idleEl = null
       idleBuffer = ''
       refreshPresence()
@@ -373,7 +406,7 @@ function handleEvent(e) {
     case 'backchannel': {
       const el = document.createElement('div')
       el.className = 'idle-thought agent-backchannel'
-      el.innerHTML = `<span class="backchannel-label">[backchannel/${event.name}]</span> ${renderMarkdown(event.text)}`
+      el.innerHTML = `<div class="inline-meta"><span class="message-time">${formatTime(Date.now())}</span></div><span class="backchannel-label">[backchannel/${event.name}]</span> ${renderMarkdown(event.text)}`
       messages.appendChild(el)
       lastSender = null
       break
@@ -391,7 +424,7 @@ function handleEvent(e) {
     case 'system': {
       const el = document.createElement('div')
       el.className = 'system-message'
-      el.textContent = event.text
+      el.innerHTML = `<span class="message-time">${formatTime(Date.now())}</span> ${escapeHtml(event.text)}`
       messages.appendChild(el)
       lastSender = null
       scrollToBottom()
@@ -621,7 +654,7 @@ function formatTime(timestamp) {
   return `${h12}:${m} ${ampm}`
 }
 
-function appendMessage(role, text, name, timestamp, fromAgent = false) {
+function appendMessage(role, text, name, timestamp, fromAgent = false, model = null) {
   const el = document.createElement('div')
   el.className = 'message'
   if (fromAgent) el.classList.add('agent-message')
@@ -675,6 +708,13 @@ function appendMessage(role, text, name, timestamp, fromAgent = false) {
     timeSpan.textContent = formatTime(timestamp) || formatTime(Date.now())
     meta.appendChild(timeSpan)
 
+    if (model) {
+      const modelSpan = document.createElement('span')
+      modelSpan.className = 'message-model'
+      modelSpan.textContent = model
+      meta.appendChild(modelSpan)
+    }
+
     el.appendChild(meta)
   }
 
@@ -694,7 +734,11 @@ function appendMessage(role, text, name, timestamp, fromAgent = false) {
 function appendTool(parentEl, text, isError = false) {
   const el = document.createElement('div')
   el.className = isError ? 'tool-call error' : 'tool-call'
-  el.textContent = text
+  const time = document.createElement('span')
+  time.className = 'message-time'
+  time.textContent = formatTime(Date.now())
+  el.appendChild(time)
+  el.appendChild(document.createTextNode(' ' + text))
   parentEl.appendChild(el)
   scrollToBottom()
 }
@@ -727,4 +771,10 @@ function renderMarkdown(text) {
 
 function truncate(str, max) {
   return str.length > max ? str.slice(0, max) + '...' : str
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div')
+  div.textContent = str
+  return div.innerHTML
 }

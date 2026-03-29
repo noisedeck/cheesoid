@@ -252,7 +252,7 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
   // with tools disabled so it summarizes in its own voice.
   await _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsage, onEvent)
 
-  onEvent({ type: 'done', usage: { input_tokens: totalUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + reasonerUsage.output_tokens } })
+  onEvent({ type: 'done', model: config.model, usage: { input_tokens: totalUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + reasonerUsage.output_tokens } })
   return { messages, usage: totalUsage }
 }
 
@@ -701,6 +701,6 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   await _nudgeIfEmpty(messages, orchestrator, config, systemPrompt, totalUsage, onEvent)
 
   console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | reasoner: ${reasonerUsage.input_tokens} in / ${reasonerUsage.output_tokens} out | tools: ${totalToolTurns}`)
-  onEvent({ type: 'done', usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens + reasonerUsage.output_tokens } })
+  onEvent({ type: 'done', model: config.model, usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens + reasonerUsage.output_tokens } })
   return { messages, usage: totalUsage }
 }

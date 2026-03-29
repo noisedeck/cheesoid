@@ -432,9 +432,13 @@ export class Room {
       }
 
       let assistantText = ''
+      let assistantModel = null
       const onEvent = (event) => {
         if (event.type === 'text_delta') {
           assistantText += event.text
+        }
+        if (event.type === 'done' && event.model) {
+          assistantModel = event.model
         }
         if (this._pendingRoom === 'home') {
           this.broadcast(event)
@@ -464,7 +468,9 @@ export class Room {
       // Route response — freeform text is always public
       if (this._pendingRoom === 'home') {
         if (assistantText.trim()) {
-          this.recordHistory({ type: 'assistant_message', text: assistantText.trim() })
+          const histEntry = { type: 'assistant_message', text: assistantText.trim() }
+          if (assistantModel) histEntry.model = assistantModel
+          this.recordHistory(histEntry)
         }
         this._autoNudgeMentionedAgents(assistantText)
       } else {
@@ -583,6 +589,7 @@ export class Room {
       // Wrap events as idle thoughts for the UI — broadcast errors must not
       // abort the agent call, so catch them individually
       let idleText = ''
+      let idleModel = null
       let toolUseCount = 0
       const onEvent = (event) => {
         try {
@@ -590,7 +597,8 @@ export class Room {
             idleText += event.text
             this.broadcast({ type: 'idle_text_delta', text: event.text })
           } else if (event.type === 'done') {
-            this.broadcast({ type: 'idle_done' })
+            if (event.model) idleModel = event.model
+            this.broadcast({ type: 'idle_done', model: event.model })
           } else if (event.type === 'tool_start') {
             toolUseCount++
             this.broadcast({ ...event, idle: true })
@@ -619,7 +627,9 @@ export class Room {
 
       this.messages = result.messages
       if (idleText) {
-        this.recordHistory({ type: 'idle_thought', text: idleText })
+        const histEntry = { type: 'idle_thought', text: idleText }
+        if (idleModel) histEntry.model = idleModel
+        this.recordHistory(histEntry)
       }
 
       if (this.state) {

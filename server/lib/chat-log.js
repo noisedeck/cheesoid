@@ -2,8 +2,8 @@ import { appendFile, readFile, readdir, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export class ChatLog {
-  constructor(personaDir) {
-    this.dir = join(personaDir, 'history')
+  constructor(personaDir, subDir = 'history') {
+    this.dir = join(personaDir, subDir)
     this._ready = mkdir(this.dir, { recursive: true })
   }
 
