@@ -91,8 +91,10 @@ export class RoomClient {
     return this._post({ message: text, name: this.agentName, ...options })
   }
 
-  async sendDMResponse(to, text) {
-    return this._post({ message: text, name: this.agentName, dm_to: to })
+  async sendDMResponse(to, text, model) {
+    const payload = { message: text, name: this.agentName, dm_to: to }
+    if (model) payload.model = model
+    return this._post(payload)
   }
 
   async sendEvent(event, room) {
