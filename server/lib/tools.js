@@ -283,7 +283,7 @@ function buildMemoryTools(memory, state) {
 const REASONER_SYSTEM = 'You are a reasoning assistant. Analyze the given problem carefully and thoroughly. Provide your conclusion.'
 
 function buildReasonerTools(config, registry) {
-  if (!config.reasoner || !registry) {
+  if (!config.reasoner?.length || !registry) {
     return { definitions: [], handles: () => false, execute: async () => ({ error: 'unknown tool' }) }
   }
 
@@ -306,7 +306,7 @@ function buildReasonerTools(config, registry) {
 
   async function execute(name, input, options) {
     const onEvent = options?.onEvent || (() => {})
-    const models = [config.reasoner, ...(config.reasoner_fallback_models || [])]
+    const models = config.reasoner
     let lastErr
 
     for (const modelString of models) {

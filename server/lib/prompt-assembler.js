@@ -120,7 +120,7 @@ export function currentTimestamp() {
 export async function assemblePrompt(personaDir, config, plugins = [], { isClaude = true } = {}) {
   const isOpenAICompat = !isClaude || config.provider === 'openai-compat'
   const isHybrid = !!config.orchestrator
-  const isModal = !!(config.cognition && config.attention)
+  const isModal = !!(config.cognition?.length && config.attention?.length)
 
   // Collect raw sections first, then structure by provider
 
@@ -212,7 +212,7 @@ export async function assemblePrompt(personaDir, config, plugins = [], { isClaud
     if (config._approximateThinking) {
       layer1Parts.push(`## Reasoning\nThink step by step before responding. Lay out your reasoning internally before acting. Consider edge cases and potential issues before executing.`)
     }
-    if (config.reasoner || config.reasoner_fallback_models?.length) {
+    if (config.reasoner?.length) {
       layer1Parts.push(REASONER_GUIDANCE)
     }
     if (isModal) {
@@ -258,7 +258,7 @@ export async function assemblePrompt(personaDir, config, plugins = [], { isClaud
   if (isModal) {
     sections.push(MODALITY_GUIDANCE)
   }
-  if (config.reasoner || config.reasoner_fallback_models?.length) {
+  if (config.reasoner?.length) {
     sections.push(REASONER_GUIDANCE)
   }
   sections.push(SOURCE_TRUST_HIERARCHY)

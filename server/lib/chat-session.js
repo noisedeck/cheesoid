@@ -186,7 +186,7 @@ export class Room {
     this.registry = new ProviderRegistry(config)
 
     // Modal mode: attention/cognition gear shifting
-    if (config.cognition && config.attention) {
+    if (config.cognition?.length && config.attention?.length) {
       this.modality = new Modality({
         attention: config.attention,
         cognition: config.cognition,
@@ -517,7 +517,7 @@ export class Room {
         const resolved = this.registry.resolve(modalModel)
         orchestratorModel = resolved.modelId
         orchestratorProvider = resolved.provider
-        executorModel = this.persona.config.model
+        executorModel = this.persona.config.model?.[0]
       } else if (hasOrchestrator) {
         const orchModelStr = typeof this.persona.config.orchestrator === 'string'
           ? this.persona.config.orchestrator
@@ -525,9 +525,9 @@ export class Room {
         const orchResolved = this.registry.resolve(orchModelStr)
         orchestratorModel = orchResolved.modelId
         orchestratorProvider = orchResolved.provider
-        executorModel = this.persona.config.model
+        executorModel = this.persona.config.model?.[0]
       } else {
-        const mainResolved = this.registry.resolve(this.persona.config.model)
+        const mainResolved = this.registry.resolve(this.persona.config.model[0])
         orchestratorModel = mainResolved.modelId
         orchestratorProvider = mainResolved.provider
       }
@@ -540,9 +540,9 @@ export class Room {
         provider: orchestratorProvider,
         executorProvider: null,
         executorModel: (hasOrchestrator || hasModality) ? executorModel : null,
-        executorFallbackModels: (hasOrchestrator || hasModality) ? (this.persona.config.fallback_models || []) : [],
+        executorFallbackModels: (hasOrchestrator || hasModality) ? (this.persona.config.model?.slice(1) || []) : [],
         orchestratorFallbackModels: (hasOrchestrator || hasModality)
-          ? (this.persona.config.orchestrator_fallback_models || this.persona.config.cognition_fallback_models || [])
+          ? (this.modality?.fallbackModels || [])
           : [],
         registry: this.registry,
         modality: null, // no gear shifting in DMs
@@ -723,7 +723,7 @@ export class Room {
         const resolved = this.registry.resolve(modalModel)
         orchestratorModel = resolved.modelId
         orchestratorProvider = resolved.provider
-        executorModel = this.persona.config.model
+        executorModel = this.persona.config.model?.[0]
       } else if (hasOrchestrator) {
         // Orchestrator model: string (new) or object with .model (legacy)
         const orchModelStr = typeof this.persona.config.orchestrator === 'string'
@@ -732,9 +732,9 @@ export class Room {
         const orchResolved = this.registry.resolve(orchModelStr)
         orchestratorModel = orchResolved.modelId
         orchestratorProvider = orchResolved.provider
-        executorModel = this.persona.config.model
+        executorModel = this.persona.config.model?.[0]
       } else {
-        const mainResolved = this.registry.resolve(this.persona.config.model)
+        const mainResolved = this.registry.resolve(this.persona.config.model[0])
         orchestratorModel = mainResolved.modelId
         orchestratorProvider = mainResolved.provider
       }
@@ -747,9 +747,9 @@ export class Room {
         provider: orchestratorProvider,
         executorProvider: null,
         executorModel: (hasOrchestrator || hasModality) ? executorModel : null,
-        executorFallbackModels: (hasOrchestrator || hasModality) ? (this.persona.config.fallback_models || []) : [],
+        executorFallbackModels: (hasOrchestrator || hasModality) ? (this.persona.config.model?.slice(1) || []) : [],
         orchestratorFallbackModels: (hasOrchestrator || hasModality)
-          ? (this.persona.config.orchestrator_fallback_models || this.persona.config.cognition_fallback_models || [])
+          ? (this.modality?.fallbackModels || [])
           : [],
         registry: this.registry,
         modality: hasModality ? this.modality : null,
@@ -847,7 +847,7 @@ export class Room {
       if (!this._lastProviderStatusAt || now - this._lastProviderStatusAt > STATUS_COOLDOWN_MS) {
         this._lastProviderStatusAt = now
         const providerUrl = err.url || 'unknown'
-        const modelName = this.persona.config.cognition || this.persona.config.model || 'unknown'
+        const modelName = this.persona.config.cognition?.[0] || this.persona.config.model?.[0] || 'unknown'
         const statusMsg = `[provider unavailable: ${modelName} via ${providerUrl} — retrying until it returns. I can't see or respond to messages in the meantime, but I'll catch up on recent scrollback when the provider is back.]`
         if (this._pendingRoom === 'home') {
           this.broadcast({ type: 'error', message: statusMsg })
@@ -938,7 +938,7 @@ export class Room {
         const resolved = this.registry.resolve(modalModel)
         orchestratorModel = resolved.modelId
         orchestratorProvider = resolved.provider
-        executorModel = this.persona.config.model
+        executorModel = this.persona.config.model?.[0]
       } else if (hasOrchestrator) {
         const orchModelStr = typeof this.persona.config.orchestrator === 'string'
           ? this.persona.config.orchestrator
@@ -946,9 +946,9 @@ export class Room {
         const orchResolved = this.registry.resolve(orchModelStr)
         orchestratorModel = orchResolved.modelId
         orchestratorProvider = orchResolved.provider
-        executorModel = this.persona.config.model
+        executorModel = this.persona.config.model?.[0]
       } else {
-        const mainResolved = this.registry.resolve(this.persona.config.model)
+        const mainResolved = this.registry.resolve(this.persona.config.model[0])
         orchestratorModel = mainResolved.modelId
         orchestratorProvider = mainResolved.provider
       }
@@ -961,9 +961,9 @@ export class Room {
         provider: orchestratorProvider,
         executorProvider: null,
         executorModel: (hasOrchestrator || hasModality) ? executorModel : null,
-        executorFallbackModels: (hasOrchestrator || hasModality) ? (this.persona.config.fallback_models || []) : [],
+        executorFallbackModels: (hasOrchestrator || hasModality) ? (this.persona.config.model?.slice(1) || []) : [],
         orchestratorFallbackModels: (hasOrchestrator || hasModality)
-          ? (this.persona.config.orchestrator_fallback_models || this.persona.config.cognition_fallback_models || [])
+          ? (this.modality?.fallbackModels || [])
           : [],
         registry: this.registry,
         modality: null, // idle thoughts don't get gear-shifting

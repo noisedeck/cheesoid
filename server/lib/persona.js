@@ -14,6 +14,7 @@ export async function loadPersona(personaDir) {
 
   const config = yaml.load(raw)
   resolveEnvVars(config)
+  normalizeTierLists(config)
   validateProviders(config)
 
   // Validate and degrade gracefully for openai-compat
@@ -88,8 +89,7 @@ function validateOrchestrator(config) {
 
   // New style: orchestrator is a model string like "claude-sonnet-4-6:anthropic"
   if (typeof orch === 'string') {
-    const fallbacks = config.orchestrator_fallback_models || []
-    console.log(`[${name}] Hybrid mode: orchestrator=${orch}, executor=${config.model}${fallbacks.length ? `, orchestrator_fallbacks=${fallbacks.join(',')}` : ''}`)
+    console.log(`[${name}] Hybrid mode: orchestrator=${orch}, executor=${config.model?.[0]}`)
     return
   }
 
@@ -106,7 +106,7 @@ function validateOrchestrator(config) {
     }
   }
 
-  console.log(`[${name}] Hybrid mode: orchestrator=${orch.provider}/${orch.model}, executor=${config.provider || 'anthropic'}/${config.model}`)
+  console.log(`[${name}] Hybrid mode: orchestrator=${orch.provider}/${orch.model}, executor=${config.provider || 'anthropic'}/${config.model?.[0]}`)
 }
 
 function validateModality(config) {
@@ -122,14 +122,41 @@ function validateModality(config) {
     throw new Error(`[${name}] cannot use both orchestrator and cognition/attention — modal mode replaces orchestrator`)
   }
 
-  const fallbacks = config.cognition_fallback_models || []
-  console.log(`[${name}] Modal mode: cognition=${config.cognition}, attention=${config.attention}, executor=${config.model}${fallbacks.length ? `, cognition_fallbacks=${fallbacks.join(',')}` : ''}`)
+  const cog = config.cognition[0]
+  const att = config.attention[0]
+  const exec = config.model?.[0]
+  const cogFallbacks = config.cognition.slice(1)
+  console.log(`[${name}] Modal mode: cognition=${cog}, attention=${att}, executor=${exec}${cogFallbacks.length ? `, cognition_fallbacks=${cogFallbacks.join(',')}` : ''}`)
 }
 
 function validateReasoner(config) {
   const name = config.name || 'unknown'
-  const fallbacks = config.reasoner_fallback_models || []
-  console.log(`[${name}] Reasoner: model=${config.reasoner}${fallbacks.length ? `, fallbacks=${fallbacks.join(',')}` : ''}`)
+  const fallbacks = config.reasoner.slice(1)
+  console.log(`[${name}] Reasoner: model=${config.reasoner[0]}${fallbacks.length ? `, fallbacks=${fallbacks.join(',')}` : ''}`)
+}
+
+/**
+ * Normalize tier config fields to arrays.
+ * Accepts string or array for each tier. Merges in any legacy
+ * _fallback_models fields, then removes them.
+ */
+function normalizeTierLists(config) {
+  const normalize = (primary, fallbacks) => {
+    const list = Array.isArray(primary) ? [...primary] : (primary ? [primary] : [])
+    if (Array.isArray(fallbacks)) list.push(...fallbacks)
+    return list.length ? list : undefined
+  }
+
+  config.model = normalize(config.model, config.fallback_models)
+  config.cognition = normalize(config.cognition, config.cognition_fallback_models)
+  config.attention = normalize(config.attention)
+  config.reasoner = normalize(config.reasoner, config.reasoner_fallback_models)
+
+  // Remove legacy fallback fields
+  delete config.fallback_models
+  delete config.cognition_fallback_models
+  delete config.reasoner_fallback_models
+  delete config.orchestrator_fallback_models
 }
 
 function resolveEnvVars(obj) {

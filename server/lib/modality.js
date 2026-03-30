@@ -1,13 +1,17 @@
 export class Modality {
   constructor(config) {
-    if (config && config.attention && config.cognition) {
-      this._attention = config.attention
-      this._cognition = config.cognition
+    if (config && config.attention?.length && config.cognition?.length) {
+      this._attention = config.attention[0]
+      this._cognition = config.cognition[0]
+      this._attentionFallbacks = config.attention.slice(1)
+      this._cognitionFallbacks = config.cognition.slice(1)
       this._mode = 'attention'
       this._isModal = true
     } else {
       this._attention = null
       this._cognition = null
+      this._attentionFallbacks = []
+      this._cognitionFallbacks = []
       this._mode = null
       this._isModal = false
     }
@@ -30,6 +34,12 @@ export class Modality {
   /** Returns the attention model string (for idle thoughts that always run cheap) */
   get attentionModel() {
     return this._attention
+  }
+
+  /** Returns fallback models for the current mode */
+  get fallbackModels() {
+    if (!this._isModal) return []
+    return this._mode === 'attention' ? this._attentionFallbacks : this._cognitionFallbacks
   }
 
   stepUp(reason) {
