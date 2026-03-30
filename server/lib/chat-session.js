@@ -9,6 +9,13 @@ import { Modality } from './modality.js'
 import { RoomClient } from './room-client.js'
 import { WakeupScheduler } from './wakeup.js'
 
+// Matches common API key patterns: sk-*, key-*, Bearer tokens, hex/base64 strings 32+ chars
+const API_KEY_PATTERN = /\b(sk-[a-zA-Z0-9_-]{20,}|key-[a-zA-Z0-9_-]{20,}|ghp_[a-zA-Z0-9]{36,}|ghu_[a-zA-Z0-9]{36,}|xoxb-[a-zA-Z0-9-]{20,}|xoxp-[a-zA-Z0-9-]{20,}|AKIA[A-Z0-9]{16}|eyJ[a-zA-Z0-9_-]{40,}\.[a-zA-Z0-9_-]{40,}|[a-zA-Z0-9_-]{40,}(?=["'\s,}\]]))/g
+
+export function redactKeys(str) {
+  return str.replace(API_KEY_PATTERN, '**[Redacted by Cheesoid]**')
+}
+
 function replaceTimestamp(prompt) {
   const ts = currentTimestamp()
   if (typeof prompt === 'string') return prompt.replace('{{CURRENT_TIMESTAMP}}', ts)
@@ -254,7 +261,7 @@ export class Room {
     // Send scrollback — one history, one send
     const scrollback = this.getScrollback()
     if (scrollback.length > 0) {
-      const data = `data: ${JSON.stringify({ type: 'scrollback', messages: scrollback })}\n\n`
+      const data = redactKeys(`data: ${JSON.stringify({ type: 'scrollback', messages: scrollback })}\n\n`)
       res.write(data)
     }
 
@@ -296,7 +303,7 @@ export class Room {
   // Send event to all connected clients
   broadcast(event) {
     const tagged = this.roomName ? { ...event, room: this.roomName } : event
-    const data = `data: ${JSON.stringify(tagged)}\n\n`
+    const data = redactKeys(`data: ${JSON.stringify(tagged)}\n\n`)
     for (const client of this.clients) {
       client.write(data)
     }
