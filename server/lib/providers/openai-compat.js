@@ -207,7 +207,7 @@ export function createOpenAICompatProvider(config) {
       } catch (err) {
         const cause = err.cause ? `: ${err.cause.message || err.cause.code || err.cause}` : ''
         console.log(`[openai-compat] classifier fetch failed${cause}, falling back to auto`)
-        circuitBreaker.recordFailure(baseUrl)
+        circuitBreaker.recordFailure(baseUrl, `classifier fetch failed${cause}`)
       }
       return 'auto'
     },
@@ -238,7 +238,7 @@ export function createOpenAICompatProvider(config) {
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         // Circuit breaker check — skip all retries if endpoint is dead
         if (circuitBreaker.isOpen(baseUrl)) {
-          throw new CircuitOpenError(baseUrl, Math.round(circuitBreaker.remainingCooldown(baseUrl) / 1000))
+          throw new CircuitOpenError(baseUrl, Math.round(circuitBreaker.remainingCooldown(baseUrl) / 1000), circuitBreaker.lastError(baseUrl))
         }
 
         try {
@@ -255,7 +255,7 @@ export function createOpenAICompatProvider(config) {
           lastErr = new Error(`OpenAI-compat fetch failed${cause}`)
           response = null
           console.log(`[openai-compat] fetch attempt ${attempt + 1}/${MAX_RETRIES} failed${cause}`)
-          circuitBreaker.recordFailure(baseUrl)
+          circuitBreaker.recordFailure(baseUrl, lastErr.message)
         }
 
         // Retry on network errors and 429/5xx
@@ -268,11 +268,11 @@ export function createOpenAICompatProvider(config) {
           const retryAfter = parseInt(response.headers.get('retry-after') || '0', 10)
           const delay = retryAfter > 0 ? retryAfter * 1000 : RETRY_DELAY_MS * (attempt + 1)
           lastErr = new Error(`OpenAI-compat rate limited (429), retrying in ${Math.round(delay / 1000)}s`)
-          circuitBreaker.recordFailure(baseUrl)
+          circuitBreaker.recordFailure(baseUrl, lastErr.message)
         } else if (response && response.status >= 500) {
           const text = await response.text().catch(() => '')
           lastErr = new Error(`OpenAI-compat server error ${response.status}: ${text}`)
-          circuitBreaker.recordFailure(baseUrl)
+          circuitBreaker.recordFailure(baseUrl, lastErr.message)
         }
 
         // Delay before retry (network errors, 429, 5xx all get backoff)

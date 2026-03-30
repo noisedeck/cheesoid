@@ -1,11 +1,12 @@
 const STATES = { CLOSED: 'CLOSED', OPEN: 'OPEN', HALF_OPEN: 'HALF_OPEN' }
 
 export class CircuitOpenError extends Error {
-  constructor(url, remainingSeconds) {
+  constructor(url, remainingSeconds, lastError) {
     super(`endpoint ${url} circuit open, retry in ${remainingSeconds}s`)
     this.isCircuitOpen = true
     this.url = url
     this.remainingSeconds = remainingSeconds
+    this.lastError = lastError || null
   }
 }
 
@@ -73,8 +74,9 @@ export class CircuitBreaker {
     ep.probing = false
   }
 
-  recordFailure(url) {
+  recordFailure(url, errorMessage) {
     const ep = this._getEndpoint(url)
+    if (errorMessage) ep.lastError = errorMessage
 
     if (ep.state === STATES.HALF_OPEN) {
       ep.cooldown = Math.min(ep.cooldown * 2, this.maxCooldown)
@@ -92,6 +94,11 @@ export class CircuitBreaker {
       ep.probing = false
       console.log(`[circuit-breaker] ${url} CLOSED -> OPEN (${ep.failures} consecutive failures, cooldown ${Math.round(ep.cooldown / 1000)}s)`)
     }
+  }
+
+  lastError(url) {
+    const ep = this._getEndpoint(url)
+    return ep.lastError || null
   }
 }
 

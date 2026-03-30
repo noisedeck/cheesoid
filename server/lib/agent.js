@@ -411,11 +411,12 @@ function isOrchestratorRetryable(err) {
 
 async function callOrchestratorWithFallback(config, params, onEvent) {
   const triedModels = [params.model]
+  const layer = config.modality ? config.modality.mode : 'cognition'
   try {
     return await config.provider.streamMessage(params, onEvent)
   } catch (err) {
     if (!isOrchestratorRetryable(err) || !config.orchestratorFallbackModels?.length) {
-      err.layer = err.layer || 'cognition'
+      err.layer = err.layer || layer
       err.triedModels = triedModels
       throw err
     }
@@ -433,7 +434,7 @@ async function callOrchestratorWithFallback(config, params, onEvent) {
         console.log(`[hybrid] orchestrator fallback ${modelId} failed: ${fallbackErr.message}`)
       }
     }
-    lastErr.layer = 'cognition'
+    lastErr.layer = layer
     lastErr.triedModels = triedModels
     throw lastErr
   }
