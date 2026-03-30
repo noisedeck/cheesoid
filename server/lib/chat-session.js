@@ -846,9 +846,10 @@ export class Room {
       const STATUS_COOLDOWN_MS = 120_000 // 2 minutes
       if (!this._lastProviderStatusAt || now - this._lastProviderStatusAt > STATUS_COOLDOWN_MS) {
         this._lastProviderStatusAt = now
-        const providerUrl = err.url || 'unknown'
-        const modelName = this.persona.config.cognition?.[0] || this.persona.config.model?.[0] || 'unknown'
-        const statusMsg = `[provider unavailable: ${modelName} via ${providerUrl} — retrying until it returns. I can't see or respond to messages in the meantime, but I'll catch up on recent scrollback when the provider is back.]`
+        const layer = err.layer || 'unknown'
+        const tried = err.triedModels?.length ? err.triedModels.join(' → ') : 'unknown'
+        const reason = err.isCircuitOpen ? `circuit open for ${err.url}` : err.message
+        const statusMsg = `**${layer} layer unavailable**\n- **Tried:** ${tried}\n- **Error:** ${reason}\n\n_Retrying until a provider returns. I'll catch up on scrollback when I'm back._`
         if (this._pendingRoom === 'home') {
           this.broadcast({ type: 'error', message: statusMsg })
         } else {

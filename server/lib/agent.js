@@ -359,6 +359,7 @@ async function callExecutorWithFallback(config, params, onEvent) {
   const models = [config.executorModel, ...(config.executorFallbackModels || [])]
   const registry = config.registry
   let lastErr
+  const triedModels = []
 
   for (const modelString of models) {
     let provider, modelId
@@ -382,6 +383,7 @@ async function callExecutorWithFallback(config, params, onEvent) {
       }
     }
 
+    triedModels.push(modelId)
     try {
       const result = await provider.streamMessage({ ...params, model: modelId }, onEvent)
       return { result, model: modelId }
@@ -394,34 +396,46 @@ async function callExecutorWithFallback(config, params, onEvent) {
       }
     }
   }
-  throw lastErr || new Error('All executor models failed')
+  const finalErr = lastErr || new Error('All executor models failed')
+  finalErr.layer = 'execution'
+  finalErr.triedModels = triedModels
+  throw finalErr
 }
 
 function isOrchestratorRetryable(err) {
+  if (err.isCircuitOpen) return true
   if (err.status === 529 || err.status === 503 || err.status === 404) return true
   if (err.errorType === 'overloaded_error' || err.errorType === 'api_error') return true
   return false
 }
 
 async function callOrchestratorWithFallback(config, params, onEvent) {
+  const triedModels = [params.model]
   try {
     return await config.provider.streamMessage(params, onEvent)
   } catch (err) {
     if (!isOrchestratorRetryable(err) || !config.orchestratorFallbackModels?.length) {
+      err.layer = err.layer || 'cognition'
+      err.triedModels = triedModels
       throw err
     }
     console.log(`[hybrid] orchestrator ${params.model} failed: ${err.message}, trying fallbacks`)
 
+    let lastErr = err
     for (const modelString of config.orchestratorFallbackModels) {
       const { modelId, provider } = config.registry.resolve(modelString)
+      triedModels.push(modelId)
       try {
         onEvent({ type: 'model_fallback', from: params.model, to: modelId })
         return await provider.streamMessage({ ...params, model: modelId }, onEvent)
       } catch (fallbackErr) {
+        lastErr = fallbackErr
         console.log(`[hybrid] orchestrator fallback ${modelId} failed: ${fallbackErr.message}`)
       }
     }
-    throw err
+    lastErr.layer = 'cognition'
+    lastErr.triedModels = triedModels
+    throw lastErr
   }
 }
 
