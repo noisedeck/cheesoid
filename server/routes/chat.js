@@ -72,7 +72,9 @@ router.post('/api/chat/send', async (req, res) => {
   } else if (req.isAgent) {
     room.addAgentMessage(name, message, { source: 'room', model: req.body.model })
   } else {
-    room.sendMessage(name, message).catch(err => {
+    const sendOpts = {}
+    if (req.body.addressed) sendOpts._addressed = req.body.addressed
+    room.sendMessage(name, message, sendOpts).catch(err => {
       console.error('sendMessage error:', err.message)
     })
   }

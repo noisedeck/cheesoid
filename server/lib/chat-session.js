@@ -324,6 +324,45 @@ export class Room {
     return pool[start]
   }
 
+  /**
+   * Parse explicit addressing patterns from message text.
+   * Returns array of addressed agent names, or null if no explicit addressing.
+   *
+   * Patterns:
+   *   @Name or @ Name        → ["Name"]
+   *   @Name @Other            → ["Name", "Other"]
+   *   Name:                   → ["Name"] (at start of message)
+   *   Name, Other:            → ["Name", "Other"]
+   *   Name and Other:         → ["Name", "Other"]
+   */
+  _parseAddressing(text) {
+    const pool = this._moderatorPool
+    const addressed = new Set()
+
+    // Pattern 1: @Name or @ Name
+    for (const agentName of pool) {
+      if (new RegExp(`@\\s*${agentName}\\b`, 'i').test(text)) {
+        addressed.add(agentName)
+      }
+    }
+    if (addressed.size > 0) return [...addressed]
+
+    // Pattern 2: Name: or Name, Name: at the start of the message
+    // Match "Name:" or "Name1, Name2:" or "Name1 and Name2:" at the beginning
+    const colonMatch = text.match(/^([^:]{1,60}):\s/)
+    if (colonMatch) {
+      const prefix = colonMatch[1]
+      for (const agentName of pool) {
+        if (new RegExp(`\\b${agentName}\\b`, 'i').test(prefix)) {
+          addressed.add(agentName)
+        }
+      }
+      if (addressed.size > 0) return [...addressed]
+    }
+
+    return null
+  }
+
   _timestamp() {
     const now = new Date()
     const h = now.getHours().toString().padStart(2, '0')
@@ -432,18 +471,24 @@ export class Room {
         // Another agent spoke — don't add to context, don't trigger
         return
       } else {
-        // Human message — check turn-taking moderator + modality shift
+        // Human message — check addressing and moderation
         const myName = this.persona.config.display_name
-        if (this.modality?.isModal) {
-          if (event.moderator === myName) {
-            this.modality.stepUp('elected moderator')
-          } else {
-            this.modality.stepDown('not moderator')
-          }
+        const addressed = event.addressed
+        if (addressed && addressed.includes(myName)) {
+          // Explicitly addressed — respond directly, no moderation needed
+          if (this.modality?.isModal) this.modality.stepUp('explicitly addressed')
+          console.log(`[${this.persona.config.name}] Explicitly addressed — responding`)
+          this._pendingRoomChannel = event.room || null
+          this._processMessage(routeRoom, event.name, event.text, { _roomChannel: event.room })
+        } else if (addressed) {
+          // Someone else explicitly addressed — stay silent
+          if (this.modality?.isModal) this.modality.stepDown('not addressed')
+          console.log(`[${this.persona.config.name}] Not addressed — silent`)
+        } else {
+          // No explicit addressing — wait for moderator's backchannel trigger
+          if (this.modality?.isModal) this.modality.stepDown('awaiting moderation')
+          console.log(`[${this.persona.config.name}] Waiting for moderator trigger`)
         }
-        // Visitors never respond to user_message directly.
-        // They wait for the moderator's backchannel trigger.
-        console.log(`[${this.persona.config.name}] Waiting for moderator trigger (moderator=${event.moderator || 'none'})`)
       }
     } else if (event.type === 'assistant_message') {
       // Host agent responded — don't add to visitor context
@@ -482,8 +527,8 @@ export class Room {
     }
   }
 
-  async sendMessage(name, userMessage) {
-    await this._processMessage('home', name, userMessage)
+  async sendMessage(name, userMessage, options = {}) {
+    await this._processMessage('home', name, userMessage, options)
   }
 
   /**
@@ -657,65 +702,65 @@ export class Room {
       const presence = room === 'home' ? ` (present: ${this.participantList.join(', ')})` : ''
       this.messages.push({ role: 'user', content: `${name}${presence}: ${text}` })
 
-      // Multi-agent turn-taking: check for direct address, else rotate
+      // Multi-agent turn-taking: explicit addressing skips moderation,
+      // otherwise moderator orchestrates.
       // Skip moderator election for system/backchannel-triggered messages
       let moderator = null
-      let mentionedAgents = []
+      let addressed = options._addressed || null // explicit floor control from API
+      const myName = this.persona.config.display_name
       const isMultiAgent = room === 'home' && this._moderatorPool.length > 1 && name !== 'system'
-      if (isMultiAgent) {
-        // Find all mentioned agents
-        for (const agentName of this._moderatorPool) {
-          if (new RegExp(`\\b${agentName}\\b`, 'i').test(text)) {
-            mentionedAgents.push(agentName)
-          }
-        }
-        // First mentioned agent is the moderator; if none mentioned, round-robin
-        moderator = mentionedAgents[0] || this._electModerator()
-        console.log(`[${this.persona.config.name}] Turn moderator: ${moderator} (mentioned: ${mentionedAgents.join(', ') || 'none'}, pool: ${this._moderatorPool.join(', ')})`)
+
+      if (isMultiAgent && !addressed) {
+        // Parse explicit addressing patterns: @Name, Name:, Name1, Name2:
+        addressed = this._parseAddressing(text)
+      }
+
+      if (isMultiAgent && !addressed) {
+        // No explicit addressing — use moderator system
+        moderator = this._electModerator()
+        console.log(`[${this.persona.config.name}] Moderator: ${moderator} (no explicit address, pool: ${this._moderatorPool.join(', ')})`)
+      } else if (addressed) {
+        console.log(`[${this.persona.config.name}] Explicitly addressed: ${addressed.join(', ')}`)
       }
 
       if (room === 'home' && !options._silent) {
         if (name) this.participants.set(name, Date.now())
         if (name !== 'system' && name !== 'webhook' && name !== 'wakeup') {
-          this.broadcast({ type: 'user_message', name, text, moderator })
+          this.broadcast({ type: 'user_message', name, text, moderator, addressed })
         }
         this.recordHistory({ type: 'user_message', name, text, room: this.roomName })
       }
 
-      // Host always orchestrates — always step up when there's a moderator decision to make
-      const myName = this.persona.config.display_name
-      if (moderator && this.modality?.isModal) {
-        this.modality.stepUp('orchestrating')
+      // Modality: step up when orchestrating or explicitly addressed
+      if (this.modality?.isModal) {
+        if (addressed ? addressed.includes(myName) : moderator) {
+          this.modality.stepUp('addressed')
+        } else if (!addressed) {
+          this.modality.stepUp('orchestrating')
+        } else {
+          this.modality.stepDown('not addressed')
+        }
       }
 
-      // Build orchestrator addendum — Red always orchestrates, never defers.
-      // The addendum tells Red's LLM who to trigger and whether to respond.
+      // Build orchestrator addendum — only needed when moderator system is active
+      // (explicit addressing skips moderation entirely)
       let moderatorAddendum = ''
-      if (moderator) {
+      if (moderator && !addressed) {
         const otherAgents = this._moderatorPool.filter(n => n !== myName).join(', ')
-        const mentionedOthers = mentionedAgents.filter(n => n !== myName)
-        if (mentionedOthers.length === 0) {
-          // No other agents mentioned — host is the moderator or round-robin picked host
-          moderatorAddendum = [
-            `\n\n## CURRENT TURN: You are the orchestrator`,
-            `Decide who should respond to the message above:`,
-            `- If addressed to everyone: call internal({ backchannel: "All agents: respond to ${name}'s message", trigger: true }) BEFORE responding. ${otherAgents} cannot speak unless you trigger them.`,
-            `- If meant for another agent: call internal({ backchannel: "[agent name]: respond to ${name}'s message", trigger: true }) to hand off, then stay silent.`,
-            `- If just for you: respond normally.`,
-            `If you skip the trigger, other agents stay silent. This is your responsibility.`,
-          ].join('\n')
-        } else {
-          // Other agent(s) mentioned — trigger them
-          const targets = mentionedOthers.join(', ')
-          const iAlsoRespond = mentionedAgents.includes(myName)
-          moderatorAddendum = [
-            `\n\n## CURRENT TURN: The message addresses ${targets}`,
-            `Call internal({ backchannel: "${targets}: respond to ${name}'s message", trigger: true }) to wake them.`,
-            iAlsoRespond
-              ? `You were also addressed — respond AFTER triggering.`
-              : `Do NOT respond to the message yourself — only trigger and stay silent.`,
-          ].join('\n')
-        }
+        moderatorAddendum = [
+          `\n\n## CURRENT TURN: You are the orchestrator`,
+          `Decide who should respond to the message above:`,
+          `- If addressed to everyone: call internal({ backchannel: "All agents: respond to ${name}'s message", trigger: true }) BEFORE responding. ${otherAgents} cannot speak unless you trigger them.`,
+          `- If meant for another agent: call internal({ backchannel: "[agent name]: respond to ${name}'s message", trigger: true }) to hand off, then stay silent.`,
+          `- If just for you: respond normally.`,
+          `If you skip the trigger, other agents stay silent. This is your responsibility.`,
+        ].join('\n')
+      }
+
+      // If explicitly addressed and host is NOT in the list, skip agent loop
+      if (addressed && !addressed.includes(myName)) {
+        console.log(`[${this.persona.config.name}] Not addressed — skipping response`)
+        return // finally block handles cleanup
       }
 
       // Determine mode: modal (attention/cognition), hybrid (orchestrator), or direct
