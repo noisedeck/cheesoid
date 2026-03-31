@@ -90,12 +90,12 @@ export class Room {
         _destroyed: false,
         _sessionStartHandled: false,
         _pendingContextMessages: [],
-        _leaderPool: [persona.config.display_name],
-        _leaderIndex: 0,
+        _moderatorPool: [persona.config.display_name],
+        _moderatorIndex: 0,
         _wakeupSchedulers: [],
       }
       for (const a of persona.config.agents || []) {
-        this._a._leaderPool.push(a.name)
+        this._a._moderatorPool.push(a.name)
       }
     }
 
@@ -167,10 +167,10 @@ export class Room {
   set _sessionStartHandled(v) { this._a._sessionStartHandled = v }
   get _pendingContextMessages() { return this._a._pendingContextMessages }
   set _pendingContextMessages(v) { this._a._pendingContextMessages = v }
-  get _leaderPool() { return this._a._leaderPool }
-  set _leaderPool(v) { this._a._leaderPool = v }
-  get _leaderIndex() { return this._a._leaderIndex }
-  set _leaderIndex(v) { this._a._leaderIndex = v }
+  get _moderatorPool() { return this._a._moderatorPool }
+  set _moderatorPool(v) { this._a._moderatorPool = v }
+  get _moderatorIndex() { return this._a._moderatorIndex }
+  set _moderatorIndex(v) { this._a._moderatorIndex = v }
   get _wakeupSchedulers() { return this._a._wakeupSchedulers }
   set _wakeupSchedulers(v) { this._a._wakeupSchedulers = v }
 
@@ -311,16 +311,16 @@ export class Room {
   }
 
   /**
-   * RAFT-like leader election. Returns the current leader name and advances
-   * the index. If the elected leader is busy, cycles through the pool once
+   * RAFT-like moderator election. Returns the current moderator name and advances
+   * the index. If the elected moderator is busy, cycles through the pool once
    * to find an available agent. Returns null if all are busy (shouldn't happen
    * since the host's busy flag is checked before calling this).
    */
-  _electLeader() {
-    if (this._leaderPool.length <= 1) return this._leaderPool[0] || null
-    const pool = this._leaderPool
-    const start = this._leaderIndex % pool.length
-    this._leaderIndex++
+  _electModerator() {
+    if (this._moderatorPool.length <= 1) return this._moderatorPool[0] || null
+    const pool = this._moderatorPool
+    const start = this._moderatorIndex % pool.length
+    this._moderatorIndex++
     return pool[start]
   }
 
@@ -432,18 +432,18 @@ export class Room {
         // Another agent spoke — don't add to context, don't trigger
         return
       } else {
-        // Human message — check turn-taking leader + modality shift
+        // Human message — check turn-taking moderator + modality shift
         const myName = this.persona.config.display_name
         if (this.modality?.isModal) {
-          if (event.leader === myName) {
-            this.modality.stepUp('elected leader')
+          if (event.moderator === myName) {
+            this.modality.stepUp('elected moderator')
           } else {
-            this.modality.stepDown('not leader')
+            this.modality.stepDown('not moderator')
           }
         }
         // Visitors never respond to user_message directly.
-        // They wait for the leader's backchannel trigger.
-        console.log(`[${this.persona.config.name}] Waiting for leader trigger (leader=${event.leader || 'none'})`)
+        // They wait for the moderator's backchannel trigger.
+        console.log(`[${this.persona.config.name}] Waiting for moderator trigger (moderator=${event.moderator || 'none'})`)
       }
     } else if (event.type === 'assistant_message') {
       // Host agent responded — don't add to visitor context
@@ -488,7 +488,7 @@ export class Room {
 
   /**
    * Process a DM to this agent. Runs the agent loop but routes the response
-   * back as a DM instead of broadcasting to the room. No leader election.
+   * back as a DM instead of broadcasting to the room. No moderator election.
    */
   async processDM(from, text) {
     if (this.busy) {
@@ -658,45 +658,45 @@ export class Room {
       this.messages.push({ role: 'user', content: `${name}${presence}: ${text}` })
 
       // Multi-agent turn-taking: check for direct address, else rotate
-      // Skip leader election for system/backchannel-triggered messages
-      let leader = null
+      // Skip moderator election for system/backchannel-triggered messages
+      let moderator = null
       let mentionedAgents = []
-      const isMultiAgent = room === 'home' && this._leaderPool.length > 1 && name !== 'system'
+      const isMultiAgent = room === 'home' && this._moderatorPool.length > 1 && name !== 'system'
       if (isMultiAgent) {
         // Find all mentioned agents
-        for (const agentName of this._leaderPool) {
+        for (const agentName of this._moderatorPool) {
           if (new RegExp(`\\b${agentName}\\b`, 'i').test(text)) {
             mentionedAgents.push(agentName)
           }
         }
-        // First mentioned agent is the leader; if none mentioned, round-robin
-        leader = mentionedAgents[0] || this._electLeader()
-        console.log(`[${this.persona.config.name}] Turn leader: ${leader} (mentioned: ${mentionedAgents.join(', ') || 'none'}, pool: ${this._leaderPool.join(', ')})`)
+        // First mentioned agent is the moderator; if none mentioned, round-robin
+        moderator = mentionedAgents[0] || this._electModerator()
+        console.log(`[${this.persona.config.name}] Turn moderator: ${moderator} (mentioned: ${mentionedAgents.join(', ') || 'none'}, pool: ${this._moderatorPool.join(', ')})`)
       }
 
       if (room === 'home' && !options._silent) {
         if (name) this.participants.set(name, Date.now())
         if (name !== 'system' && name !== 'webhook' && name !== 'wakeup') {
-          this.broadcast({ type: 'user_message', name, text, leader })
+          this.broadcast({ type: 'user_message', name, text, moderator })
         }
         this.recordHistory({ type: 'user_message', name, text, room: this.roomName })
       }
 
-      // Host always orchestrates — always step up when there's a leader decision to make
+      // Host always orchestrates — always step up when there's a moderator decision to make
       const myName = this.persona.config.display_name
-      if (leader && this.modality?.isModal) {
+      if (moderator && this.modality?.isModal) {
         this.modality.stepUp('orchestrating')
       }
 
       // Build orchestrator addendum — Red always orchestrates, never defers.
       // The addendum tells Red's LLM who to trigger and whether to respond.
-      let leaderAddendum = ''
-      if (leader) {
-        const otherAgents = this._leaderPool.filter(n => n !== myName).join(', ')
+      let moderatorAddendum = ''
+      if (moderator) {
+        const otherAgents = this._moderatorPool.filter(n => n !== myName).join(', ')
         const mentionedOthers = mentionedAgents.filter(n => n !== myName)
         if (mentionedOthers.length === 0) {
-          // No other agents mentioned — Red is the leader or round-robin picked Red
-          leaderAddendum = [
+          // No other agents mentioned — host is the moderator or round-robin picked host
+          moderatorAddendum = [
             `\n\n## CURRENT TURN: You are the orchestrator`,
             `Decide who should respond to the message above:`,
             `- If addressed to everyone: call internal({ backchannel: "All agents: respond to ${name}'s message", trigger: true }) BEFORE responding. ${otherAgents} cannot speak unless you trigger them.`,
@@ -708,7 +708,7 @@ export class Room {
           // Other agent(s) mentioned — trigger them
           const targets = mentionedOthers.join(', ')
           const iAlsoRespond = mentionedAgents.includes(myName)
-          leaderAddendum = [
+          moderatorAddendum = [
             `\n\n## CURRENT TURN: The message addresses ${targets}`,
             `Call internal({ backchannel: "${targets}: respond to ${name}'s message", trigger: true }) to wake them.`,
             iAlsoRespond
@@ -805,13 +805,13 @@ export class Room {
         ? this.systemPrompt
         : await assemblePrompt(this.persona.dir, this.persona.config, this.persona.plugins, { isClaude: false })
       let prompt = replaceTimestamp(basePrompt)
-      // Append leader duties to system prompt — NOT to messages (prevents echo leak)
-      if (leaderAddendum) {
+      // Append moderator duties to system prompt — NOT to messages (prevents echo leak)
+      if (moderatorAddendum) {
         if (typeof prompt === 'string') {
-          prompt += leaderAddendum
+          prompt += moderatorAddendum
         } else if (Array.isArray(prompt)) {
           const last = prompt[prompt.length - 1]
-          prompt[prompt.length - 1] = { ...last, content: last.content + leaderAddendum }
+          prompt[prompt.length - 1] = { ...last, content: last.content + moderatorAddendum }
         }
       }
       const agentFn = (hasOrchestrator || hasModality) ? runHybridAgent : runAgent
@@ -939,11 +939,11 @@ export class Room {
       let orchestratorModel, orchestratorProvider, executorModel
 
       if (hasModality) {
-        // Non-leaders step down on idle; leader stays in cognition
-        const currentLeader = this._leaderPool[((this._leaderIndex - 1) % this._leaderPool.length + this._leaderPool.length) % this._leaderPool.length]
-        const isLeader = currentLeader === this.persona.config.display_name
-        if (!isLeader) this.modality.stepDown('idle — not leader')
-        const modalModel = isLeader ? this.modality.model : this.modality.attentionModel
+        // Non-moderators step down on idle; moderator stays in cognition
+        const currentModerator = this._moderatorPool[((this._moderatorIndex - 1) % this._moderatorPool.length + this._moderatorPool.length) % this._moderatorPool.length]
+        const isModerator = currentModerator === this.persona.config.display_name
+        if (!isModerator) this.modality.stepDown('idle — not moderator')
+        const modalModel = isModerator ? this.modality.model : this.modality.attentionModel
         const resolved = this.registry.resolve(modalModel)
         orchestratorModel = resolved.modelId
         orchestratorProvider = resolved.provider

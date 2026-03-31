@@ -41,12 +41,12 @@ export class RoomManager {
       _destroyed: false,
       _sessionStartHandled: false,
       _pendingContextMessages: [],
-      _leaderPool: [persona.config.display_name],
-      _leaderIndex: 0,
+      _moderatorPool: [persona.config.display_name],
+      _moderatorIndex: 0,
       _wakeupSchedulers: [],
     }
     for (const agent of persona.config.agents || []) {
-      this.agent._leaderPool.push(agent.name)
+      this.agent._moderatorPool.push(agent.name)
     }
 
     const hostedRooms = persona.config.hosted_rooms || []
