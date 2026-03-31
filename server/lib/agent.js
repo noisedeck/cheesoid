@@ -1,4 +1,5 @@
 import { CircuitOpenError } from './circuit-breaker.js'
+import { runDMNPass } from './dmn.js'
 
 /**
  * Heuristic intent classifier — determines tool vs text without an API call.
@@ -95,6 +96,28 @@ function getLastUserText(messages) {
 }
 
 /**
+ * Apply DMN enrichment to the last text user message.
+ * Returns save state for restoration, or null if no suitable message found.
+ */
+function applyDMNEnrichment(messages, assessment, displayName) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user' && typeof messages[i].content === 'string') {
+      const raw = messages[i].content
+      messages[i].content = `[${displayName}'s read]\n${assessment}\n\n[message]\n${raw}`
+      return { index: i, rawContent: raw }
+    }
+  }
+  return null
+}
+
+/**
+ * Restore the original user message after DMN enrichment.
+ */
+function restoreDMNEnrichment(messages, saved) {
+  if (saved) messages[saved.index].content = saved.rawContent
+}
+
+/**
  * Run the agent loop. Calls onEvent with SSE events as it goes.
  * Delegates streaming to the provider (Anthropic, OpenAI-compat, etc.).
  * Handles tool execution and message assembly.
@@ -111,6 +134,9 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
   let rescueCount = 0
   let totalToolTurns = 0
   let rescueFailed = false
+  let dmnCompleted = false
+  let dmnSaved = null
+  let dmnUsage = { input_tokens: 0, output_tokens: 0 }
 
   while (iterations < maxTurns) {
     // Intent routing for providers that support it (open models).
@@ -151,6 +177,19 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
     }
 
     repairToolUseGaps(messages)
+
+    // DMN pass — runs once, before first LLM call
+    if (!dmnCompleted && config.dmnProvider) {
+      const dmn = await runDMNPass(
+        config.dmnPrompt, messages, config.dmnProvider, config.dmnModel,
+      )
+      dmnUsage = dmn.usage
+      if (dmn.assessment) {
+        dmnSaved = applyDMNEnrichment(messages, dmn.assessment, config.displayName)
+        console.log(`[dmn] assessment applied (${dmn.usage.input_tokens} in / ${dmn.usage.output_tokens} out)`)
+      }
+      dmnCompleted = true
+    }
 
     let result
     try {
@@ -257,11 +296,14 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
     iterations++
   }
 
+  // Restore raw message — DMN enrichment is transient
+  restoreDMNEnrichment(messages, dmnSaved)
+
   // If the model ended with no text after tool results, make one more call
   // with tools disabled so it summarizes in its own voice.
   await _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsage, onEvent)
 
-  onEvent({ type: 'done', model: config.model, usage: { input_tokens: totalUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + reasonerUsage.output_tokens } })
+  onEvent({ type: 'done', model: config.model, usage: { input_tokens: totalUsage.input_tokens + reasonerUsage.input_tokens + dmnUsage.input_tokens, output_tokens: totalUsage.output_tokens + reasonerUsage.output_tokens + dmnUsage.output_tokens } })
   return { messages, usage: totalUsage }
 }
 
@@ -492,6 +534,9 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   let rescueFailed = false
   let stepUpUsed = false // one step_up re-run per agent call
   let lastRespondedModel = null // actual model that responded (may differ from config.model after fallback)
+  let dmnCompleted = false
+  let dmnSaved = null
+  let dmnUsage = { input_tokens: 0, output_tokens: 0 }
 
   while (iterations < maxTurns) {
     // Intent routing — applies when orchestrator is openai-compat
@@ -528,6 +573,22 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     // Safety: ensure no orphaned tool_use blocks without matching tool_results
     // (can happen if a previous turn crashed mid-execution)
     repairToolUseGaps(messages)
+
+    // DMN pass — runs once, before first orchestrator call in cognition mode
+    if (!dmnCompleted && config.dmnProvider) {
+      const isCognition = config.modality ? config.modality.mode === 'cognition' : true
+      if (isCognition) {
+        const dmn = await runDMNPass(
+          config.dmnPrompt, messages, config.dmnProvider, config.dmnModel,
+        )
+        dmnUsage = dmn.usage
+        if (dmn.assessment) {
+          dmnSaved = applyDMNEnrichment(messages, dmn.assessment, config.displayName)
+          console.log(`[dmn] assessment applied (${dmn.usage.input_tokens} in / ${dmn.usage.output_tokens} out)`)
+        }
+        dmnCompleted = true
+      }
+    }
 
     // Orchestrator call — full context
     const result = await callOrchestratorWithFallback(
@@ -739,12 +800,15 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     iterations++
   }
 
+  // Restore raw message — DMN enrichment is transient
+  restoreDMNEnrichment(messages, dmnSaved)
+
   // If the orchestrator ended with no text after tool results, make one more call
   // with tools disabled so it summarizes in its own voice.
   // Use config.provider (not the captured `orchestrator`) because step_up may have changed it
   await _nudgeIfEmpty(messages, config.provider, config, systemPrompt, totalUsage, onEvent)
 
-  console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | reasoner: ${reasonerUsage.input_tokens} in / ${reasonerUsage.output_tokens} out | tools: ${totalToolTurns}`)
-  onEvent({ type: 'done', model: lastRespondedModel, usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens + reasonerUsage.output_tokens } })
+  console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | reasoner: ${reasonerUsage.input_tokens} in / ${reasonerUsage.output_tokens} out | dmn: ${dmnUsage.input_tokens} in / ${dmnUsage.output_tokens} out | tools: ${totalToolTurns}`)
+  onEvent({ type: 'done', model: lastRespondedModel, usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens + reasonerUsage.input_tokens + dmnUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens + reasonerUsage.output_tokens + dmnUsage.output_tokens } })
   return { messages, usage: totalUsage }
 }
