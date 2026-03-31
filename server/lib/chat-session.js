@@ -839,21 +839,22 @@ export class Room {
 
       let assistantText = ''
       let assistantModel = null
-      // Emit the model name immediately so the UI can label all messages from the start
-      if (this._pendingRoom === 'home') {
-        this.broadcast({ type: 'response_model', model: orchestratorModel })
-      }
+      // Track actual responding model — updated on fallback
+      let activeModel = orchestratorModel
       const onEvent = (event) => {
         if (event.type === 'text_delta') {
           assistantText += event.text
         }
+        if (event.type === 'model_fallback') {
+          activeModel = event.to
+        }
         if (event.type === 'done' && event.model) {
           assistantModel = event.model
         }
-        // Tag all tool events with the model that initiated them
+        // Tag tool events with the model that actually initiated them
         // (executor events already have model from the hybrid loop wrapper)
         if ((event.type === 'tool_start' || event.type === 'tool_result') && !event.model) {
-          event.model = orchestratorModel
+          event.model = activeModel
         }
         if (this._pendingRoom === 'home') {
           this.broadcast(event)

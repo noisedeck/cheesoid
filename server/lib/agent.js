@@ -491,6 +491,7 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   let totalToolTurns = 0
   let rescueFailed = false
   let stepUpUsed = false // one step_up re-run per agent call
+  let lastRespondedModel = null // actual model that responded (may differ from config.model after fallback)
 
   while (iterations < maxTurns) {
     // Intent routing — applies when orchestrator is openai-compat
@@ -545,7 +546,7 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     )
 
     let { contentBlocks, stopReason, usage, actualModel } = result
-    if (actualModel) config.model = actualModel // track which model actually responded
+    lastRespondedModel = actualModel
     totalUsage.input_tokens += usage.input_tokens
     totalUsage.output_tokens += usage.output_tokens
 
@@ -744,6 +745,6 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   await _nudgeIfEmpty(messages, config.provider, config, systemPrompt, totalUsage, onEvent)
 
   console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | reasoner: ${reasonerUsage.input_tokens} in / ${reasonerUsage.output_tokens} out | tools: ${totalToolTurns}`)
-  onEvent({ type: 'done', model: config.model, usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens + reasonerUsage.output_tokens } })
+  onEvent({ type: 'done', model: lastRespondedModel, usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens + reasonerUsage.output_tokens } })
   return { messages, usage: totalUsage }
 }

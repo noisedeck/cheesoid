@@ -352,8 +352,10 @@ function handleEvent(e) {
         appendMessage('user', event.text, event.name || event.from, null, event.fromAgent, event.model)
       }
       // Show thinking indicator for room messages and DMs to the host agent
+      // Skip if the floor excludes the host
       const isDMToHost = event.to && event.to === personaLabel
-      if (!event.fromAgent && (!event.to || isDMToHost)) {
+      const hostOnFloor = !event.floor || event.floor.includes(personaLabel)
+      if (!event.fromAgent && (!event.to || isDMToHost) && hostOnFloor) {
         assistantEl = appendMessage('assistant', '')
         assistantBuffer = ''
         thinkingEl = document.createElement('div')
@@ -382,7 +384,21 @@ function handleEvent(e) {
       break
 
     case 'text_delta':
-      if (assistantEl) {
+      if (event.visiting) {
+        const agentName = event.agentName
+        if (!visitorStreams.has(agentName)) {
+          const el = appendMessage('assistant', '', agentName, null, true)
+          el.classList.add('visitor-message')
+          el.style.borderLeftColor = nameColor(agentName)
+          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: null })
+        }
+        const vs = visitorStreams.get(agentName)
+        if (vs.thinkingEl) { vs.thinkingEl.remove(); vs.thinkingEl = null }
+        vs.buffer += event.text
+        const vBody = vs.element.querySelector('.message-body')
+        if (vBody) vBody.innerHTML = renderMarkdown(vs.buffer)
+        scrollToBottom()
+      } else if (assistantEl) {
         if (thinkingEl) {
           thinkingEl.remove()
           thinkingEl = null
@@ -450,6 +466,25 @@ function handleEvent(e) {
       break
 
     case 'done':
+      if (event.visiting) {
+        const agentName = event.agentName
+        const vs = visitorStreams.get(agentName)
+        if (vs) {
+          if (vs.thinkingEl) { vs.thinkingEl.remove(); vs.thinkingEl = null }
+          if (event.model) {
+            const meta = vs.element.querySelector('.message-meta')
+            if (meta && !meta.querySelector('.message-model')) {
+              const modelSpan = document.createElement('span')
+              modelSpan.className = 'message-model'
+              modelSpan.textContent = event.model
+              meta.appendChild(modelSpan)
+            }
+          }
+          const toolDetails = vs.element.querySelector('details.tool-details')
+          if (toolDetails) toolDetails.open = false
+        }
+        break
+      }
       if (thinkingEl) {
         thinkingEl.remove()
         thinkingEl = null
