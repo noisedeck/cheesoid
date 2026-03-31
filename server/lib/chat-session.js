@@ -479,6 +479,9 @@ export class Room {
         // Human message — check floor control
         const myName = this.persona.config.display_name
         const floor = event.floor
+        // Always add human messages to context so we know what's being discussed
+        this._safeAppendMessage({ role: 'user', content: `${event.name}: ${event.text}` })
+
         if (floor && floor.includes(myName)) {
           // On the floor — respond
           if (this.modality?.isModal) this.modality.stepUp('has floor')

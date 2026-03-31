@@ -428,7 +428,8 @@ async function callOrchestratorWithFallback(config, params, onEvent) {
   const triedModels = [params.model]
   const layer = config.layer
   try {
-    return await config.provider.streamMessage(params, onEvent)
+    const result = await config.provider.streamMessage(params, onEvent)
+    return { ...result, actualModel: params.model }
   } catch (err) {
     if (!isOrchestratorRetryable(err) || !config.orchestratorFallbackModels?.length) {
       err.layer = err.layer || layer
@@ -443,7 +444,8 @@ async function callOrchestratorWithFallback(config, params, onEvent) {
       triedModels.push(modelId)
       try {
         onEvent({ type: 'model_fallback', from: params.model, to: modelId })
-        return await provider.streamMessage({ ...params, model: modelId }, onEvent)
+        const result = await provider.streamMessage({ ...params, model: modelId }, onEvent)
+        return { ...result, actualModel: modelId }
       } catch (fallbackErr) {
         lastErr = fallbackErr
         console.log(`[hybrid] orchestrator fallback ${modelId} failed: ${fallbackErr.message}`)
@@ -542,7 +544,8 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
       onEvent,
     )
 
-    let { contentBlocks, stopReason, usage } = result
+    let { contentBlocks, stopReason, usage, actualModel } = result
+    if (actualModel) config.model = actualModel // track which model actually responded
     totalUsage.input_tokens += usage.input_tokens
     totalUsage.output_tokens += usage.output_tokens
 
