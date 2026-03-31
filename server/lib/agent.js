@@ -138,6 +138,7 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
   let dmnSaved = null
   let dmnUsage = { input_tokens: 0, output_tokens: 0 }
 
+  try {
   while (iterations < maxTurns) {
     // Intent routing for providers that support it (open models).
     let toolChoice = undefined
@@ -296,15 +297,16 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
     iterations++
   }
 
-  // Restore raw message — DMN enrichment is transient
-  restoreDMNEnrichment(messages, dmnSaved)
-
   // If the model ended with no text after tool results, make one more call
   // with tools disabled so it summarizes in its own voice.
   await _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsage, onEvent)
 
   onEvent({ type: 'done', model: config.model, usage: { input_tokens: totalUsage.input_tokens + reasonerUsage.input_tokens + dmnUsage.input_tokens, output_tokens: totalUsage.output_tokens + reasonerUsage.output_tokens + dmnUsage.output_tokens } })
   return { messages, usage: totalUsage }
+  } finally {
+    // Restore raw message — DMN enrichment is transient (must run even on error)
+    restoreDMNEnrichment(messages, dmnSaved)
+  }
 }
 
 /**
@@ -538,6 +540,7 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   let dmnSaved = null
   let dmnUsage = { input_tokens: 0, output_tokens: 0 }
 
+  try {
   while (iterations < maxTurns) {
     // Intent routing — applies when orchestrator is openai-compat
     let toolChoice = undefined
@@ -800,9 +803,6 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     iterations++
   }
 
-  // Restore raw message — DMN enrichment is transient
-  restoreDMNEnrichment(messages, dmnSaved)
-
   // If the orchestrator ended with no text after tool results, make one more call
   // with tools disabled so it summarizes in its own voice.
   // Use config.provider (not the captured `orchestrator`) because step_up may have changed it
@@ -811,4 +811,8 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | reasoner: ${reasonerUsage.input_tokens} in / ${reasonerUsage.output_tokens} out | dmn: ${dmnUsage.input_tokens} in / ${dmnUsage.output_tokens} out | tools: ${totalToolTurns}`)
   onEvent({ type: 'done', model: lastRespondedModel, usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens + reasonerUsage.input_tokens + dmnUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens + reasonerUsage.output_tokens + dmnUsage.output_tokens } })
   return { messages, usage: totalUsage }
+  } finally {
+    // Restore raw message — DMN enrichment is transient (must run even on error)
+    restoreDMNEnrichment(messages, dmnSaved)
+  }
 }
