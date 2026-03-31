@@ -40,6 +40,52 @@ Be concise, perceptive, and true to ${name}'s perspective. 3-6 sentences total.`
   return parts.join('\n\n')
 }
 
+const DMN_MAX_TOKENS = 512
+
+/**
+ * Execute the DMN pass. Calls the DMN model with persona-filtered context
+ * and returns the assessment text, or null on failure.
+ *
+ * Non-streaming from the caller's perspective — the full assessment is needed
+ * before the orchestrator can start.
+ */
+export async function runDMNPass(dmnPrompt, messages, provider, model) {
+  // Last message is the raw input — must be a text user message
+  const lastMsg = messages[messages.length - 1]
+  if (!lastMsg || lastMsg.role !== 'user' || typeof lastMsg.content !== 'string') {
+    return { assessment: null, usage: { input_tokens: 0, output_tokens: 0 } }
+  }
+
+  // Context is everything before the current message
+  const context = buildDMNContext(messages.slice(0, -1))
+
+  const system = context
+    ? `${dmnPrompt}\n\n== RECENT CONTEXT ==\n${context}`
+    : dmnPrompt
+
+  try {
+    const result = await provider.streamMessage(
+      {
+        model,
+        maxTokens: DMN_MAX_TOKENS,
+        system,
+        messages: [{ role: 'user', content: lastMsg.content }],
+        tools: [],
+        serverTools: [],
+        thinkingBudget: null,
+      },
+      () => {}, // No-op — we collect the full result, not streaming events
+    )
+
+    const textBlock = result.contentBlocks.find(b => b.type === 'text')
+    const assessment = textBlock?.text?.trim() || null
+    return { assessment, usage: result.usage }
+  } catch (err) {
+    console.log(`[dmn] pass failed: ${err.message} — proceeding without enrichment`)
+    return { assessment: null, usage: { input_tokens: 0, output_tokens: 0 } }
+  }
+}
+
 /**
  * Extract clean conversational context from the messages array.
  * Skips tool_use and tool_result blocks — DMN needs conversation, not tool noise.

@@ -1,9 +1,9 @@
-import { describe, it } from 'node:test'
+import { describe, it, mock } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { assembleDMNPrompt, buildDMNContext } from '../server/lib/dmn.js'
+import { assembleDMNPrompt, buildDMNContext, runDMNPass } from '../server/lib/dmn.js'
 
 describe('assembleDMNPrompt', () => {
   it('includes SOUL.md content and display name', async () => {
@@ -105,5 +105,114 @@ describe('buildDMNContext', () => {
 
   it('returns empty string for empty messages', () => {
     assert.equal(buildDMNContext([]), '')
+  })
+})
+
+function makeProvider(response) {
+  return {
+    streamMessage: mock.fn(async (params, onEvent) => response),
+  }
+}
+
+describe('runDMNPass', () => {
+  it('calls provider with correct params and returns assessment', async () => {
+    const provider = makeProvider({
+      contentBlocks: [{ type: 'text', text: 'SITUATION: Casual greeting.\nINTERPRETATION: User wants to chat.\nAPPROACH: Be friendly.' }],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 200, output_tokens: 50 },
+    })
+
+    const messages = [
+      { role: 'user', content: 'alice: hey how are you?' },
+    ]
+
+    const { assessment, usage } = await runDMNPass('system prompt', messages, provider, 'haiku')
+
+    assert.ok(assessment.includes('SITUATION'))
+    assert.equal(usage.input_tokens, 200)
+    assert.equal(usage.output_tokens, 50)
+
+    // Verify provider was called correctly
+    const call = provider.streamMessage.mock.calls[0]
+    const params = call.arguments[0]
+    assert.equal(params.model, 'haiku')
+    assert.equal(params.maxTokens, 512)
+    assert.deepEqual(params.tools, [])
+    assert.deepEqual(params.serverTools, [])
+    assert.equal(params.thinkingBudget, null)
+    // System prompt should be the dmn prompt (no context since only 1 message)
+    assert.equal(params.system, 'system prompt')
+    // Messages should be a single user message with the raw input
+    assert.equal(params.messages.length, 1)
+    assert.equal(params.messages[0].content, 'alice: hey how are you?')
+  })
+
+  it('includes recent context in system prompt when available', async () => {
+    const provider = makeProvider({
+      contentBlocks: [{ type: 'text', text: 'assessment' }],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 300, output_tokens: 40 },
+    })
+
+    const messages = [
+      { role: 'user', content: 'alice: check the server' },
+      { role: 'assistant', content: [{ type: 'text', text: 'Server looks good.' }] },
+      { role: 'user', content: 'alice: now check the pipeline' },
+    ]
+
+    await runDMNPass('base prompt', messages, provider, 'haiku')
+
+    const call = provider.streamMessage.mock.calls[0]
+    const system = call.arguments[0].system
+    assert.ok(system.includes('base prompt'))
+    assert.ok(system.includes('RECENT CONTEXT'))
+    assert.ok(system.includes('alice: check the server'))
+    assert.ok(system.includes('Server looks good.'))
+    // Raw input should NOT be in context — it's in the user message
+    assert.ok(!system.includes('now check the pipeline'))
+  })
+
+  it('returns null assessment on provider error', async () => {
+    const provider = {
+      streamMessage: mock.fn(async () => { throw new Error('503 overloaded') }),
+    }
+
+    const messages = [{ role: 'user', content: 'alice: hello' }]
+    const { assessment, usage } = await runDMNPass('prompt', messages, provider, 'haiku')
+
+    assert.equal(assessment, null)
+    assert.equal(usage.input_tokens, 0)
+    assert.equal(usage.output_tokens, 0)
+  })
+
+  it('returns null when last message is not a user text message', async () => {
+    const provider = makeProvider({
+      contentBlocks: [{ type: 'text', text: 'should not reach' }],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 0, output_tokens: 0 },
+    })
+
+    const messages = [
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+    ]
+
+    const { assessment } = await runDMNPass('prompt', messages, provider, 'haiku')
+
+    assert.equal(assessment, null)
+    assert.equal(provider.streamMessage.mock.callCount(), 0)
+  })
+
+  it('returns null when response has no text block', async () => {
+    const provider = makeProvider({
+      contentBlocks: [],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 100, output_tokens: 0 },
+    })
+
+    const messages = [{ role: 'user', content: 'alice: hi' }]
+    const { assessment, usage } = await runDMNPass('prompt', messages, provider, 'haiku')
+
+    assert.equal(assessment, null)
+    assert.equal(usage.input_tokens, 100)
   })
 })
