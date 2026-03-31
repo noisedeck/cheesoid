@@ -441,20 +441,9 @@ export class Room {
             this.modality.stepDown('not leader')
           }
         }
-        const mentionedByName = new RegExp(`\\b${myName}\\b`, 'i').test(event.text)
-        if (mentionedByName) {
-          if (this.modality?.isModal) this.modality.stepUp('addressed by name')
-          console.log(`[${this.persona.config.name}] Mentioned by name — responding`)
-          this._pendingRoomChannel = event.room || null
-          this._processMessage(routeRoom, event.name, event.text, { _roomChannel: event.room })
-        } else if (event.leader && event.leader !== myName) {
-          // Not our turn — don't add to context, don't process
-          console.log(`[${this.persona.config.name}] Deferring to ${event.leader}`)
-        } else {
-          console.log(`[${this.persona.config.name}] Taking the floor`)
-          this._pendingRoomChannel = event.room || null
-          this._processMessage(routeRoom, event.name, event.text, { _roomChannel: event.room })
-        }
+        // Visitors never respond to user_message directly.
+        // They wait for the leader's backchannel trigger.
+        console.log(`[${this.persona.config.name}] Waiting for leader trigger (leader=${event.leader || 'none'})`)
       }
     } else if (event.type === 'assistant_message') {
       // Host agent responded — don't add to visitor context
