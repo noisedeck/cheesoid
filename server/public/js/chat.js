@@ -352,8 +352,10 @@ function handleEvent(e) {
         appendMessage('user', event.text, event.name || event.from, null, event.fromAgent, event.model)
       }
       // Show thinking indicator for room messages and DMs to the host agent
+      // Skip if explicit addressing excludes the host
       const isDMToHost = event.to && event.to === personaLabel
-      if (!event.fromAgent && (!event.to || isDMToHost)) {
+      const hostAddressed = !event.addressed || event.addressed.includes(personaLabel)
+      if (!event.fromAgent && (!event.to || isDMToHost) && hostAddressed) {
         assistantEl = appendMessage('assistant', '')
         assistantBuffer = ''
         thinkingEl = document.createElement('div')
