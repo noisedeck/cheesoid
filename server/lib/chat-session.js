@@ -103,16 +103,6 @@ export class Room {
     }
 
     // Venue awareness
-    const officeUrl = persona.config.office_url
-    if (officeUrl) {
-      try {
-        this.homeDomain = new URL(officeUrl).hostname
-      } catch {
-        this.homeDomain = null
-      }
-    } else {
-      this.homeDomain = null
-    }
     this.roomDomains = new Map()
     for (const roomConfig of persona.config.rooms || []) {
       if (roomConfig.domain) {
@@ -424,7 +414,7 @@ export class Room {
   }
 
   _domainSuffix(room) {
-    const domain = room === 'home' ? this.homeDomain : this.roomDomains.get(room)
+    const domain = this.roomDomains.get(room)
     return domain ? `@${domain}` : ''
   }
 

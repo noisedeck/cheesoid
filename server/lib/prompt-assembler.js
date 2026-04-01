@@ -141,7 +141,7 @@ export async function assemblePrompt(personaDir, config, plugins = [], { isClaud
     systemPromptContent = await readSafe(join(personaDir, promptPath))
   }
 
-  // Room/office sections
+  // Room sections
   const operationalSections = []
 
   const TURN_TAKING = [
@@ -170,13 +170,6 @@ export async function assemblePrompt(personaDir, config, plugins = [], { isClaud
 
   if (config.agents && config.agents.length > 0) {
     operationalSections.push(TURN_TAKING)
-  }
-
-  if (config.office_url) {
-    operationalSections.push([
-      `## Your Office`,
-      `Your office is at ${config.office_url}. When a conversation in someone else's room becomes an extended back-and-forth, invite them to your office so the main conversation can continue without the noise.`,
-    ].join('\n'))
   }
 
   // Plugin skills

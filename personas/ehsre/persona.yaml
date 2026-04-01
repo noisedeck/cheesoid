@@ -1,6 +1,5 @@
 name: ehsre
 display_name: "Emergency Holographic SRE"
-## office_url: https://your-ehsre-instance.example.com
 model: claude-sonnet-4-6
 max_budget_usd: 10
 

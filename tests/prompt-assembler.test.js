@@ -132,59 +132,6 @@ describe('assemblePrompt', () => {
     assert.ok(pluginIdx < memoryIdx)
   })
 
-  it('uses office terminology in connected rooms section', async () => {
-    const dir = await makePersona({
-      'SOUL.md': 'Soul.',
-      'prompts/system.md': 'System.',
-      'memory/MEMORY.md': 'Memory.',
-    })
-
-    const result = await assemblePrompt(dir, {
-      display_name: 'Test Agent',
-      chat: { prompt: 'prompts/system.md' },
-      memory: { dir: 'memory/', auto_read: ['MEMORY.md'] },
-      rooms: [{ name: 'other-agent', url: 'http://localhost:3001', secret: 's' }],
-    })
-
-    assert.ok(result.includes('your office'))
-    assert.ok(result.includes("other agents' offices"))
-    assert.ok(!result.includes('home room'))
-  })
-
-  it('injects office_url awareness when configured', async () => {
-    const dir = await makePersona({
-      'SOUL.md': 'Soul.',
-      'prompts/system.md': 'System.',
-      'memory/MEMORY.md': 'Memory.',
-    })
-
-    const result = await assemblePrompt(dir, {
-      display_name: 'Test Agent',
-      office_url: 'https://test-agent.example.com',
-      chat: { prompt: 'prompts/system.md' },
-      memory: { dir: 'memory/', auto_read: ['MEMORY.md'] },
-    })
-
-    assert.ok(result.includes('https://test-agent.example.com'))
-    assert.ok(result.includes('invite them'))
-  })
-
-  it('office-invite guard warns against inviting users already in home', async () => {
-    const dir = await makePersona({
-      'SOUL.md': 'I am the soul.',
-      'prompts/system.md': 'System context.',
-    })
-
-    const result = await assemblePrompt(dir, {
-      display_name: 'Test Agent',
-      chat: { prompt: 'prompts/system.md' },
-      office_url: 'https://test.example.com',
-    })
-
-    assert.ok(result.includes('[home/...]'))
-    assert.ok(result.includes('do not invite'))
-  })
-
   it('includes moderation instructions when agents are configured', async () => {
     const dir = await makePersona({
       'SOUL.md': 'Soul.',
@@ -197,8 +144,8 @@ describe('assemblePrompt', () => {
       chat: { prompt: 'prompts/system.md' },
       agents: [{ name: 'Brad', secret: 's' }],
     }, [])
-    assert.ok(prompt.includes('consider whether to handle it yourself'))
-    assert.ok(prompt.includes('delegate'))
+    assert.ok(prompt.includes('Multi-Agent Turn-Taking'))
+    assert.ok(prompt.includes('moderator'))
   })
 
   it('includes social cue backchannel instructions when rooms are configured', async () => {
