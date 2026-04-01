@@ -422,6 +422,35 @@ function repairToolUseGaps(messages) {
       }
     }
   }
+
+  // Second pass: catch user messages with tool_results that have no preceding
+  // assistant message at all (e.g. at position 0 or after another user message)
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]
+    if (msg.role !== 'user' || !Array.isArray(msg.content)) continue
+
+    const toolResults = msg.content.filter(b => b.type === 'tool_result')
+    if (toolResults.length === 0) continue
+
+    const prev = i > 0 ? messages[i - 1] : null
+    const prevToolUseIds = new Set()
+    if (prev && prev.role === 'assistant' && Array.isArray(prev.content)) {
+      for (const b of prev.content) {
+        if (b.type === 'tool_use') prevToolUseIds.add(b.id)
+      }
+    }
+
+    const orphaned = toolResults.filter(b => !prevToolUseIds.has(b.tool_use_id))
+    if (orphaned.length > 0) {
+      console.log(`[hybrid] removing ${orphaned.length} orphaned tool_result blocks at message ${i} (no matching tool_use in preceding message)`)
+      msg.content = msg.content.filter(
+        b => b.type !== 'tool_result' || prevToolUseIds.has(b.tool_use_id)
+      )
+      if (msg.content.length === 0) {
+        msg.content = '[tool results removed — referenced non-existent tool calls]'
+      }
+    }
+  }
 }
 
 const EXECUTOR_SYSTEM = `You are a tool executor for an English-language business application. You receive tool results and may need to call follow-up tools.
