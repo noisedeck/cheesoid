@@ -187,7 +187,7 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
       dmnUsage = dmn.usage
       if (dmn.assessment) {
         dmnSaved = applyDMNEnrichment(messages, dmn.assessment, config.displayName)
-        console.log(`[dmn] assessment applied (${dmn.usage.input_tokens} in / ${dmn.usage.output_tokens} out)`)
+        console.log(`[dmn] assessment applied (${dmn.usage.input_tokens} in / ${dmn.usage.output_tokens} out):\n${dmn.assessment}`)
       }
       dmnCompleted = true
     }
@@ -361,42 +361,65 @@ async function _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsag
 }
 
 /**
- * Repair orphaned tool_use blocks in message history. If an assistant message
- * contains tool_use blocks but the next message doesn't have matching
- * tool_results, insert synthetic results to prevent API 400 errors.
+ * Repair orphaned tool_use/tool_result blocks in message history.
+ * - If an assistant message has tool_use blocks without matching tool_results
+ *   in the next message, insert synthetic results.
+ * - If a user message has tool_result blocks referencing tool_use_ids not
+ *   present in the preceding assistant message, remove them.
  */
 function repairToolUseGaps(messages) {
   for (let i = 0; i < messages.length - 1; i++) {
     const msg = messages[i]
     if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue
 
-    const toolUseIds = msg.content
-      .filter(b => b.type === 'tool_use')
-      .map(b => b.id)
-    if (toolUseIds.length === 0) continue
+    const toolUseIds = new Set(
+      msg.content.filter(b => b.type === 'tool_use').map(b => b.id)
+    )
 
     const next = messages[i + 1]
-    const existingResultIds = new Set()
-    if (next && next.role === 'user' && Array.isArray(next.content)) {
-      for (const b of next.content) {
-        if (b.type === 'tool_result') existingResultIds.add(b.tool_use_id)
+    if (!next || next.role !== 'user' || !Array.isArray(next.content)) {
+      // No user message follows — insert synthetic results for all tool_use blocks
+      if (toolUseIds.size > 0) {
+        console.log(`[hybrid] repairing ${toolUseIds.size} orphaned tool_use blocks at message ${i}`)
+        const syntheticResults = [...toolUseIds].map(id => ({
+          type: 'tool_result',
+          tool_use_id: id,
+          content: '{"output":"[tool result unavailable — previous session interrupted]","is_error":true}',
+        }))
+        messages.splice(i + 1, 0, { role: 'user', content: syntheticResults })
       }
+      continue
     }
 
-    const missing = toolUseIds.filter(id => !existingResultIds.has(id))
-    if (missing.length === 0) continue
+    const existingResultIds = new Set()
+    for (const b of next.content) {
+      if (b.type === 'tool_result') existingResultIds.add(b.tool_use_id)
+    }
 
-    console.log(`[hybrid] repairing ${missing.length} orphaned tool_use blocks at message ${i}`)
-    const syntheticResults = missing.map(id => ({
-      type: 'tool_result',
-      tool_use_id: id,
-      content: '{"output":"[tool result unavailable — previous session interrupted]","is_error":true}',
-    }))
+    // Forward: add synthetic results for tool_use blocks missing results
+    const missingResults = [...toolUseIds].filter(id => !existingResultIds.has(id))
+    if (missingResults.length > 0) {
+      console.log(`[hybrid] repairing ${missingResults.length} orphaned tool_use blocks at message ${i}`)
+      next.content.push(...missingResults.map(id => ({
+        type: 'tool_result',
+        tool_use_id: id,
+        content: '{"output":"[tool result unavailable — previous session interrupted]","is_error":true}',
+      })))
+    }
 
-    if (next && next.role === 'user' && Array.isArray(next.content)) {
-      next.content.push(...syntheticResults)
-    } else {
-      messages.splice(i + 1, 0, { role: 'user', content: syntheticResults })
+    // Inverse: remove tool_result blocks referencing non-existent tool_use ids
+    const orphanedResults = next.content.filter(
+      b => b.type === 'tool_result' && !toolUseIds.has(b.tool_use_id)
+    )
+    if (orphanedResults.length > 0) {
+      console.log(`[hybrid] removing ${orphanedResults.length} orphaned tool_result blocks at message ${i + 1}`)
+      next.content = next.content.filter(
+        b => b.type !== 'tool_result' || toolUseIds.has(b.tool_use_id)
+      )
+      // If no content left, replace with placeholder
+      if (next.content.length === 0) {
+        next.content = '[tool results removed — referenced non-existent tool calls]'
+      }
     }
   }
 }
@@ -444,7 +467,10 @@ async function callExecutorWithFallback(config, params, onEvent) {
 
     triedModels.push(modelId)
     try {
+      const t0 = Date.now()
       const result = await provider.streamMessage({ ...params, model: modelId }, onEvent)
+      result._latencyMs = Date.now() - t0
+      result._model = modelId
       return { result, model: modelId }
     } catch (err) {
       lastErr = err
@@ -471,8 +497,9 @@ async function callOrchestratorWithFallback(config, params, onEvent) {
   const triedModels = [params.model]
   const layer = config.layer
   try {
+    const t0 = Date.now()
     const result = await config.provider.streamMessage(params, onEvent)
-    return { ...result, actualModel: params.model }
+    return { ...result, actualModel: params.model, _latencyMs: Date.now() - t0 }
   } catch (err) {
     if (!isOrchestratorRetryable(err) || !config.orchestratorFallbackModels?.length) {
       err.layer = err.layer || layer
@@ -487,8 +514,9 @@ async function callOrchestratorWithFallback(config, params, onEvent) {
       triedModels.push(modelId)
       try {
         onEvent({ type: 'model_fallback', from: params.model, to: modelId })
+        const t0 = Date.now()
         const result = await provider.streamMessage({ ...params, model: modelId }, onEvent)
-        return { ...result, actualModel: modelId }
+        return { ...result, actualModel: modelId, _latencyMs: Date.now() - t0 }
       } catch (fallbackErr) {
         lastErr = fallbackErr
         console.log(`[hybrid] orchestrator fallback ${modelId} failed: ${fallbackErr.message}`)
@@ -536,6 +564,7 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   let stepUpUsed = false // one step_up re-run per agent call
   let lastRespondedModel = null // actual model that responded (may differ from config.model after fallback)
   const calledTools = new Set() // track tool+args for dedup across executor turns
+  const metrics = { models: {}, totalLatencyMs: 0, fallbackCount: 0, duplicateToolCalls: 0, startTime: Date.now() }
   let dmnCompleted = false
   let dmnSaved = null
   let dmnUsage = { input_tokens: 0, output_tokens: 0 }
@@ -587,7 +616,7 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
         dmnUsage = dmn.usage
         if (dmn.assessment) {
           dmnSaved = applyDMNEnrichment(messages, dmn.assessment, config.displayName)
-          console.log(`[dmn] assessment applied (${dmn.usage.input_tokens} in / ${dmn.usage.output_tokens} out)`)
+          console.log(`[dmn] assessment applied (${dmn.usage.input_tokens} in / ${dmn.usage.output_tokens} out):\n${dmn.assessment}`)
         }
         dmnCompleted = true
       }
@@ -609,10 +638,20 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
       onEvent,
     )
 
-    let { contentBlocks, stopReason, usage, actualModel } = result
+    let { contentBlocks, stopReason, usage, actualModel, _latencyMs } = result
     lastRespondedModel = actualModel
     totalUsage.input_tokens += usage.input_tokens
     totalUsage.output_tokens += usage.output_tokens
+    // Track per-model metrics
+    if (actualModel) {
+      if (!metrics.models[actualModel]) metrics.models[actualModel] = { calls: 0, tokens_in: 0, tokens_out: 0, latency_ms: [], tools: 0, fallbacks: 0 }
+      const m = metrics.models[actualModel]
+      m.calls++
+      m.tokens_in += usage.input_tokens
+      m.tokens_out += usage.output_tokens
+      if (_latencyMs) m.latency_ms.push(_latencyMs)
+      if (actualModel !== config.model) { m.fallbacks++; metrics.fallbackCount++ }
+    }
 
     const toolUseCount = contentBlocks.filter(b => b.type === 'tool_use').length
     const hasText = contentBlocks.some(b => b.type === 'text' && b.text)
@@ -749,6 +788,15 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
 
           executorUsage.input_tokens += execResult.usage.input_tokens
           executorUsage.output_tokens += execResult.usage.output_tokens
+          // Track executor model metrics
+          if (usedModel) {
+            if (!metrics.models[usedModel]) metrics.models[usedModel] = { calls: 0, tokens_in: 0, tokens_out: 0, latency_ms: [], tools: 0, fallbacks: 0 }
+            const em = metrics.models[usedModel]
+            em.calls++
+            em.tokens_in += execResult.usage.input_tokens
+            em.tokens_out += execResult.usage.output_tokens
+            if (execResult._latencyMs) em.latency_ms.push(execResult._latencyMs)
+          }
 
           const execContent = execResult.contentBlocks.map(block => {
             if (block.type === 'tool_use' && typeof block.input === 'string') {
@@ -812,7 +860,16 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   // Use config.provider (not the captured `orchestrator`) because step_up may have changed it
   await _nudgeIfEmpty(messages, config.provider, config, systemPrompt, totalUsage, onEvent)
 
-  console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | reasoner: ${reasonerUsage.input_tokens} in / ${reasonerUsage.output_tokens} out | dmn: ${dmnUsage.input_tokens} in / ${dmnUsage.output_tokens} out | tools: ${totalToolTurns}`)
+  metrics.totalLatencyMs = Date.now() - metrics.startTime
+  metrics.duplicateToolCalls = calledTools.size < totalToolTurns ? totalToolTurns - calledTools.size : 0
+  // Per-model summary
+  const modelSummary = Object.entries(metrics.models).map(([model, m]) => {
+    const avgLatency = m.latency_ms.length ? Math.round(m.latency_ms.reduce((a, b) => a + b, 0) / m.latency_ms.length) : 0
+    const p95Latency = m.latency_ms.length ? Math.round(m.latency_ms.sort((a, b) => a - b)[Math.floor(m.latency_ms.length * 0.95)]) : 0
+    return `${model}: ${m.calls} calls, ${m.tokens_in}/${m.tokens_out} tok, avg ${avgLatency}ms, p95 ${p95Latency}ms${m.fallbacks ? `, ${m.fallbacks} fallback` : ''}`
+  }).join(' | ')
+  console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | reasoner: ${reasonerUsage.input_tokens} in / ${reasonerUsage.output_tokens} out | dmn: ${dmnUsage.input_tokens} in / ${dmnUsage.output_tokens} out | tools: ${totalToolTurns} | total: ${metrics.totalLatencyMs}ms | fallbacks: ${metrics.fallbackCount}`)
+  console.log(`[hybrid] models: ${modelSummary}`)
   onEvent({ type: 'done', model: lastRespondedModel, usage: { input_tokens: totalUsage.input_tokens + executorUsage.input_tokens + reasonerUsage.input_tokens + dmnUsage.input_tokens, output_tokens: totalUsage.output_tokens + executorUsage.output_tokens + reasonerUsage.output_tokens + dmnUsage.output_tokens } })
   return { messages, usage: totalUsage }
   } finally {
