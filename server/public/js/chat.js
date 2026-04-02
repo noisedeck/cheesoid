@@ -401,24 +401,29 @@ function handleEvent(e) {
       break
 
     case 'reviewing': {
-      // Post-response DMN review — show thinking indicator on the current assistant message
-      const reviewTarget = event.visiting ? visitorStreams.get(event.name)?.element : assistantEl
-      if (reviewTarget) {
-        const dots = document.createElement('div')
-        dots.className = 'thinking-indicator reviewing-indicator'
-        dots.innerHTML = '<span>thinking</span><div class="thinking-dots"><span></span><span></span><span></span></div>'
-        reviewTarget.appendChild(dots)
+      // Post-response DMN review — show standalone thinking indicator
+      // At this point the agent's response is already done (assistantEl is null),
+      // so we create a new element for the thinking dots.
+      const reviewName = event.visiting ? (event.agentName || event.name) : null
+      const reviewEl = document.createElement('div')
+      reviewEl.className = 'message assistant-message reviewing-message'
+      if (reviewName) {
+        reviewEl.classList.add('visitor-message')
+        reviewEl.style.borderLeftColor = nameColor(reviewName)
       }
+      const reviewDots = document.createElement('div')
+      reviewDots.className = 'thinking-indicator reviewing-indicator'
+      reviewDots.innerHTML = '<span>thinking</span><div class="thinking-dots"><span></span><span></span><span></span></div>'
+      reviewEl.appendChild(reviewDots)
+      messages.appendChild(reviewEl)
+      scrollToBottom()
       break
     }
 
     case 'reviewing_done': {
       // Clear the review thinking indicator
-      const reviewDoneTarget = event.visiting ? visitorStreams.get(event.name)?.element : assistantEl
-      if (reviewDoneTarget) {
-        const indicator = reviewDoneTarget.querySelector('.reviewing-indicator')
-        if (indicator) indicator.remove()
-      }
+      const indicator = messages.querySelector('.reviewing-message')
+      if (indicator) indicator.remove()
       break
     }
 
@@ -437,7 +442,15 @@ function handleEvent(e) {
         const vBody = vs.element.querySelector('.message-body')
         if (vBody) vBody.innerHTML = renderMarkdown(vs.buffer)
         scrollToBottom()
-      } else if (assistantEl) {
+      } else {
+        // Create assistant element if none exists (e.g. correction turn after done)
+        if (!assistantEl) {
+          // Remove reviewing indicator if present
+          const reviewMsg = messages.querySelector('.reviewing-message')
+          if (reviewMsg) reviewMsg.remove()
+          assistantEl = appendMessage('assistant', '')
+          assistantBuffer = ''
+        }
         if (thinkingEl) {
           thinkingEl.remove()
           thinkingEl = null

@@ -595,9 +595,19 @@ export class Room {
     const agentName = displayName || this.persona.config.display_name || this.persona.config.name
     let correctionText = ''
 
+    // Route events through room client for visitor agents, local broadcast for host
+    const emitEvent = (event) => {
+      if (this._pendingRoom === 'home') {
+        this.broadcast(event)
+      } else {
+        const client = this.roomClients.get(this._pendingRoom)
+        if (client) client.sendEvent(event, this._pendingRoomChannel)
+      }
+    }
+
     for (let pass = 0; pass < MAX_REVIEW_PASSES; pass++) {
       // Show thinking indicator via UI affordance
-      this.broadcast({ type: 'reviewing', name: agentName })
+      emitEvent({ type: 'reviewing', name: agentName })
 
       const textToReview = correctionText || assistantText
       const { verdict, usage } = await runDMNReview(
@@ -606,7 +616,7 @@ export class Room {
       console.log(`[dmn-review] pass ${pass + 1}: verdict=${verdict === 'pass' ? 'PASS' : 'CRITIQUE'} (${usage.input_tokens} in / ${usage.output_tokens} out)`)
 
       if (verdict === 'pass') {
-        this.broadcast({ type: 'reviewing_done', name: agentName })
+        emitEvent({ type: 'reviewing_done', name: agentName })
         return correctionText
       }
 
@@ -647,7 +657,7 @@ export class Room {
 
       correctionText = turnText.trim()
       if (!correctionText) {
-        this.broadcast({ type: 'reviewing_done', name: agentName })
+        emitEvent({ type: 'reviewing_done', name: agentName })
         return correctionText // no text produced, stop
       }
     }
