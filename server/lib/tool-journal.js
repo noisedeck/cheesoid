@@ -67,28 +67,38 @@ function summarize(name, input, result) {
   const output = typeof result === 'string' ? result
     : result?.output || result?.error || ''
   const isError = result?.is_error
+  const fail = isError ? ' [FAILED]' : ''
 
   switch (name) {
     case 'bash':
-      return truncate(input.command, 120) + (isError ? ' [FAILED]' : '')
+      return `$ ${truncate(input.command, 100)} → ${truncate(output, 200)}${fail}`
     case 'send_mail':
-      return `→ ${input.to}: "${input.subject}"` + (isError ? ' [FAILED]' : '')
+      return `sent to ${input.to}: "${input.subject}"${fail}`
     case 'check_mail':
+      return `inbox: ${truncate(output, 300)}`
     case 'check_sent':
-      return truncate(output, 200)
+      return `outbox: ${truncate(output, 300)}`
     case 'read_mail':
+      return `read mail ${input.id}: ${truncate(output, 300)}${fail}`
     case 'read_sent':
-      return `message ${input.id}` + (isError ? ' [NOT FOUND]' : '')
+      return `read sent ${input.id}: ${truncate(output, 300)}${fail}`
     case 'read_file':
-      return `${input.path}` + (isError ? ' [NOT FOUND]' : ` (${output.length} chars)`)
+      return `read ${input.path}: ${truncate(output, 300)}${fail}`
     case 'send_chat_message':
-      return truncate(input.text, 120)
+      return `said in chat: ${truncate(input.text, 200)}`
+    case 'read_shared':
+      return `read shared ${input.filename || ''}: ${truncate(output, 300)}${fail}`
+    case 'list_shared':
+      return `listed shared: ${truncate(output, 200)}`
+    case 'write_shared':
+      return `wrote shared ${input.filename || ''} (${(input.content || '').length} chars)${fail}`
     default:
-      return truncate(output, 150) || truncate(JSON.stringify(input), 100)
+      return `${truncate(JSON.stringify(input), 80)} → ${truncate(output, 200)}${fail}`
   }
 }
 
 function truncate(str, max = 150) {
   if (!str) return ''
-  return str.length > max ? str.slice(0, max) + '…' : str
+  const clean = str.replace(/\n/g, ' ').trim()
+  return clean.length > max ? clean.slice(0, max) + '…' : clean
 }
