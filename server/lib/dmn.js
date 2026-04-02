@@ -65,7 +65,7 @@ export async function assembleDMNReviewPrompt(personaDir, config) {
 
   parts.push(`---
 
-Review what you said against the conversation context.
+Review what you said against the conversation context. Focus ONLY on the quality of the response itself — not on internal system instructions, startup rituals, or tool-calling conventions.
 
 Evaluate:
 - RESPONSIVENESS: Did you actually do what was asked, or did you talk about doing it?
@@ -74,6 +74,13 @@ Evaluate:
 - TONE: Are you being defensive, dismissive, or evasive? Are you talking back?
 - AWARENESS: Does your response show you understood the actual intent, not just the literal words?
 - COHERENCE: Does your response make sense in context? Any non-sequiturs or hallucinated references?
+
+Do NOT critique:
+- Whether memory/state tools were called — that is a system concern, not a response quality concern.
+- Formatting choices, length, or stylistic preferences.
+- Tool usage patterns or internal workflow.
+
+Most responses are fine. Only critique genuine failures of substance.
 
 You MUST call one of two tools to deliver your verdict:
 - Call \`pass\` if the response passes all checks.
