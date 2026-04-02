@@ -40,6 +40,48 @@ Be concise, perceptive, and true to ${name}'s perspective. 3-6 sentences total.`
   return parts.join('\n\n')
 }
 
+/**
+ * Assemble the DMN review prompt — post-response self-awareness.
+ * Uses the same identity (name, SOUL.md) as the pre-conscious prompt
+ * but with a reviewer framing.
+ */
+export async function assembleDMNReviewPrompt(personaDir, config) {
+  let soul = ''
+  try {
+    soul = await readFile(join(personaDir, 'SOUL.md'), 'utf8')
+  } catch {
+    // No SOUL.md — proceed without it
+  }
+
+  const name = config.display_name || config.name
+
+  const parts = [
+    `You are the self-monitoring layer of ${name}. You just spoke.`,
+  ]
+
+  if (soul) {
+    parts.push(soul)
+  }
+
+  parts.push(`---
+
+Review what you said against the conversation context.
+
+Evaluate:
+- RESPONSIVENESS: Did you actually do what was asked, or did you talk about doing it?
+- COMPLETENESS: Is this a full solution or a lazy/partial one? Did you punt work back to the user?
+- SUBSTANCE: Did you provide real output (code, commands, analysis) or just commentary?
+- TONE: Are you being defensive, dismissive, or evasive? Are you talking back?
+- AWARENESS: Does your response show you understood the actual intent, not just the literal words?
+- COHERENCE: Does your response make sense in context? Any non-sequiturs or hallucinated references?
+
+If the response passes all checks, respond with exactly: PASS
+
+If any check fails, respond with a brief, specific critique (2-3 sentences). Name the problem and what the correction should address. Do not rewrite the response yourself.`)
+
+  return parts.join('\n\n')
+}
+
 const DMN_MAX_TOKENS = 512
 
 /**
@@ -83,6 +125,48 @@ export async function runDMNPass(dmnPrompt, messages, provider, model) {
   } catch (err) {
     console.log(`[dmn] pass failed: ${err.message} — proceeding without enrichment`)
     return { assessment: null, usage: { input_tokens: 0, output_tokens: 0 } }
+  }
+}
+
+const DMN_REVIEW_MAX_TOKENS = 512
+
+/**
+ * Execute the DMN post-response review. Evaluates the agent's response
+ * against conversation context. Returns { verdict: 'pass' | string, usage }.
+ *
+ * On failure, returns 'pass' — same resilience as runDMNPass.
+ */
+export async function runDMNReview(reviewPrompt, messages, assistantText, provider, model) {
+  const context = buildDMNContext(messages)
+
+  const system = context
+    ? `${reviewPrompt}\n\n== RECENT CONTEXT ==\n${context}`
+    : reviewPrompt
+
+  try {
+    const result = await provider.streamMessage(
+      {
+        model,
+        maxTokens: DMN_REVIEW_MAX_TOKENS,
+        system,
+        messages: [{ role: 'user', content: `== YOUR RESPONSE ==\n${assistantText}` }],
+        tools: [],
+        serverTools: [],
+        thinkingBudget: null,
+      },
+      () => {},
+    )
+
+    const textBlock = result.contentBlocks.find(b => b.type === 'text')
+    const raw = textBlock?.text?.trim() || ''
+
+    if (!raw || raw.toLowerCase() === 'pass') {
+      return { verdict: 'pass', usage: result.usage }
+    }
+    return { verdict: raw, usage: result.usage }
+  } catch (err) {
+    console.log(`[dmn-review] pass failed: ${err.message} — treating as pass`)
+    return { verdict: 'pass', usage: { input_tokens: 0, output_tokens: 0 } }
   }
 }
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { assembleDMNPrompt, buildDMNContext, runDMNPass } from '../server/lib/dmn.js'
+import { assembleDMNPrompt, buildDMNContext, runDMNPass, assembleDMNReviewPrompt, runDMNReview } from '../server/lib/dmn.js'
 
 describe('assembleDMNPrompt', () => {
   it('includes SOUL.md content and display name', async () => {
@@ -214,5 +214,126 @@ describe('runDMNPass', () => {
 
     assert.equal(assessment, null)
     assert.equal(usage.input_tokens, 100)
+  })
+})
+
+describe('assembleDMNReviewPrompt', () => {
+  it('includes SOUL.md content and display name', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dmn-review-test-'))
+    await writeFile(join(dir, 'SOUL.md'), 'You are Brad from Monetization.')
+
+    const prompt = await assembleDMNReviewPrompt(dir, { display_name: 'Brad', name: 'brad' })
+
+    assert.ok(prompt.includes('Brad'))
+    assert.ok(prompt.includes('You are Brad from Monetization'))
+    assert.ok(prompt.includes('RESPONSIVENESS'))
+    assert.ok(prompt.includes('COMPLETENESS'))
+    assert.ok(prompt.includes('PASS'))
+  })
+
+  it('works without SOUL.md', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dmn-review-test-'))
+
+    const prompt = await assembleDMNReviewPrompt(dir, { display_name: 'Test', name: 'test' })
+
+    assert.ok(prompt.includes('Test'))
+    assert.ok(prompt.includes('RESPONSIVENESS'))
+  })
+})
+
+describe('runDMNReview', () => {
+  it('returns pass verdict when DMN says PASS', async () => {
+    const provider = makeProvider({
+      contentBlocks: [{ type: 'text', text: 'PASS' }],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 150, output_tokens: 5 },
+    })
+
+    const messages = [
+      { role: 'user', content: 'alice: deploy the canary' },
+      { role: 'assistant', content: [{ type: 'text', text: 'Deploying canary now.' }] },
+    ]
+
+    const { verdict, usage } = await runDMNReview('review prompt', messages, 'Deploying canary now.', provider, 'haiku')
+
+    assert.equal(verdict, 'pass')
+    assert.equal(usage.input_tokens, 150)
+  })
+
+  it('returns pass verdict for case-insensitive PASS', async () => {
+    const provider = makeProvider({
+      contentBlocks: [{ type: 'text', text: '  pass  ' }],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 100, output_tokens: 5 },
+    })
+
+    const messages = [{ role: 'user', content: 'alice: hi' }]
+    const { verdict } = await runDMNReview('prompt', messages, 'Hello!', provider, 'haiku')
+
+    assert.equal(verdict, 'pass')
+  })
+
+  it('returns critique as verdict when DMN flags an issue', async () => {
+    const provider = makeProvider({
+      contentBlocks: [{ type: 'text', text: 'RESPONSIVENESS: The agent talked about deploying instead of actually doing it. Should run the deploy command.' }],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 200, output_tokens: 30 },
+    })
+
+    const messages = [
+      { role: 'user', content: 'alice: deploy the canary' },
+      { role: 'assistant', content: [{ type: 'text', text: 'I can deploy the canary for you.' }] },
+    ]
+
+    const { verdict } = await runDMNReview('prompt', messages, 'I can deploy the canary for you.', provider, 'haiku')
+
+    assert.ok(verdict !== 'pass')
+    assert.ok(verdict.includes('RESPONSIVENESS'))
+  })
+
+  it('sends assistant text and context to provider correctly', async () => {
+    const provider = makeProvider({
+      contentBlocks: [{ type: 'text', text: 'PASS' }],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 100, output_tokens: 5 },
+    })
+
+    const messages = [
+      { role: 'user', content: 'alice: check status' },
+      { role: 'assistant', content: [{ type: 'text', text: 'Status is green.' }] },
+    ]
+
+    await runDMNReview('review prompt', messages, 'Status is green.', provider, 'haiku')
+
+    const call = provider.streamMessage.mock.calls[0]
+    const params = call.arguments[0]
+    assert.equal(params.model, 'haiku')
+    assert.ok(params.system.includes('review prompt'))
+    assert.equal(params.messages.length, 1)
+    assert.ok(params.messages[0].content.includes('Status is green.'))
+  })
+
+  it('returns pass on provider error', async () => {
+    const provider = {
+      streamMessage: mock.fn(async () => { throw new Error('503') }),
+    }
+
+    const messages = [{ role: 'user', content: 'alice: hi' }]
+    const { verdict } = await runDMNReview('prompt', messages, 'Hello!', provider, 'haiku')
+
+    assert.equal(verdict, 'pass')
+  })
+
+  it('returns pass when response has no text block', async () => {
+    const provider = makeProvider({
+      contentBlocks: [],
+      stopReason: 'end_turn',
+      usage: { input_tokens: 100, output_tokens: 0 },
+    })
+
+    const messages = [{ role: 'user', content: 'alice: hi' }]
+    const { verdict } = await runDMNReview('prompt', messages, 'Hello!', provider, 'haiku')
+
+    assert.equal(verdict, 'pass')
   })
 })
