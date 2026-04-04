@@ -945,13 +945,24 @@ export class Room {
 
       // Skip agent loop when:
       // 1. Floor is set and host is NOT on it
-      // 2. Moderator is elected and it's NOT the host (host waits for trigger like everyone else)
+      // 2. Moderator is elected and it's NOT the host — auto-trigger the visitor
       if (floor && !floor.includes(myName)) {
         console.log(`[${this.persona.config.name}] Not on floor — skipping response`)
         return // finally block handles cleanup
       }
       if (moderator && moderator !== myName) {
-        console.log(`[${this.persona.config.name}] Not moderator (${moderator} is) — skipping response`)
+        // Elected moderator is a visitor — they can't self-activate, so trigger
+        // them via backchannel. Without this, visitors sit in "Waiting for
+        // moderator trigger" forever because only the host can send triggers.
+        const otherAgents = this._moderatorPool.filter(n => n !== moderator).join(', ')
+        console.log(`[${this.persona.config.name}] Triggering elected moderator: ${moderator}`)
+        this.broadcast({
+          type: 'backchannel',
+          name: myName,
+          text: `You are the moderator. Respond to ${name}'s message. If ${otherAgents} should also respond, call internal({ backchannel: "respond to ${name}'s message", trigger: true }).`,
+          trigger: true,
+          target: moderator,
+        })
         return // finally block handles cleanup
       }
 
