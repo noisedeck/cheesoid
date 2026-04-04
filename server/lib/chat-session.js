@@ -11,8 +11,8 @@ import { Modality } from './modality.js'
 import { RoomClient } from './room-client.js'
 import { WakeupScheduler } from './wakeup.js'
 
-// Matches common API key patterns: sk-*, key-*, Bearer tokens, hex/base64 strings 32+ chars
-const API_KEY_PATTERN = /\b(sk-[a-zA-Z0-9_-]{20,}|key-[a-zA-Z0-9_-]{20,}|ghp_[a-zA-Z0-9]{36,}|ghu_[a-zA-Z0-9]{36,}|xoxb-[a-zA-Z0-9-]{20,}|xoxp-[a-zA-Z0-9-]{20,}|AKIA[A-Z0-9]{16}|eyJ[a-zA-Z0-9_-]{40,}\.[a-zA-Z0-9_-]{40,}|[a-zA-Z0-9_-]{40,}(?=["'\s,}\]]))/g
+// Matches common API key patterns: sk-*, key-*, vendor_sk_*, Bearer tokens, hex/base64 strings 32+ chars
+const API_KEY_PATTERN = /\b(sk-[a-zA-Z0-9_-]{20,}|[a-zA-Z0-9]+_sk_[a-zA-Z0-9_-]{20,}|key-[a-zA-Z0-9_-]{20,}|ghp_[a-zA-Z0-9]{36,}|ghu_[a-zA-Z0-9]{36,}|xoxb-[a-zA-Z0-9-]{20,}|xoxp-[a-zA-Z0-9-]{20,}|AKIA[A-Z0-9]{16}|eyJ[a-zA-Z0-9_-]{40,}\.[a-zA-Z0-9_-]{40,}|[a-zA-Z0-9_-]{40,}(?=["'\s,}\]\\]))/g
 
 export function redactKeys(str) {
   return str.replace(API_KEY_PATTERN, '**[Redacted by Cheesoid]**')
@@ -275,7 +275,7 @@ export class Room {
 
     // Send moderator pool to agents so they know the full participant list
     if (isAgent && this._moderatorPool.length > 1) {
-      res.write(`data: ${JSON.stringify({ type: 'moderator_pool', pool: this._moderatorPool })}\n\n`)
+      res.write(redactKeys(`data: ${JSON.stringify({ type: 'moderator_pool', pool: this._moderatorPool })}\n\n`))
     }
 
     // Start heartbeat if this is the first client
@@ -493,10 +493,13 @@ export class Room {
   }
 
   _handleRemoteEvent(event, roomConfigName) {
-    // Sync moderator pool from host
+    // Log moderator pool from host — but do NOT overwrite our local pool.
+    // The local _moderatorPool drives isMultiAgent, addressing, and moderator
+    // election for the HOME room. Syncing the remote pool here corrupts those
+    // checks (e.g. wakeup messages get skipped because a remote agent wins
+    // the moderator election in the local room).
     if (event.type === 'moderator_pool') {
-      this._moderatorPool = event.pool
-      console.log(`[${this.persona.config.name}] Moderator pool synced: ${event.pool.join(', ')}`)
+      console.log(`[${this.persona.config.name}] Remote moderator pool: ${event.pool.join(', ')}`)
       return
     }
 
@@ -902,7 +905,11 @@ export class Room {
       // Modality: step up when we have the floor or are orchestrating
       const iHaveFloor = floor ? floor.includes(myName) : !!moderator
       if (this.modality?.isModal) {
-        if (iHaveFloor) {
+        if (options._silent) {
+          // Silent messages are backchannel triggers — always step up.
+          // This runs AFTER floor logic so it can't be overridden by stepDown.
+          this.modality.stepUp('backchannel trigger')
+        } else if (iHaveFloor) {
           this.modality.stepUp('has floor')
         } else if (!floor) {
           this.modality.stepUp('orchestrating')

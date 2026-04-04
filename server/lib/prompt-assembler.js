@@ -49,7 +49,9 @@ You have tools available via function calling. You MUST use them correctly:
 - **BATCH independent tool calls.** When you need multiple pieces of data that don't depend on each other, emit ALL the tool calls in a single response. For example, if you need to check notifications AND check the timeline AND check disk usage, emit all three tool calls at once — do not call them one at a time. This is critical for efficiency.
 - **Only sequence tool calls when one depends on another's result.** If you need the output of tool A to construct the input for tool B, call A first, then call B after seeing the result. But if A and B are independent, call them together.`
 
-const TAIL_REINFORCEMENT = `REMINDERS: Use tools via function calling — never narrate tool use in text. Do not fabricate data — verify through tools. Do not take destructive actions without confirmation. Use the \`internal\` tool for private thoughts and backchannel — do not write them as plain text. Stay in character.`
+const TAIL_REINFORCEMENT = `REMINDERS: Use tools via function calling — never narrate tool use in text. Do not fabricate data — verify through tools. Do not take destructive actions without confirmation. Stay in character.
+
+CRITICAL — Inside voice vs. outside voice: You have two voices. Your OUTSIDE voice is your text response — shared dialogue that everyone in the room reads. Your INSIDE voice is \`internal({ thought: "..." })\` — private mental narrative that nobody sees. NEVER leak your inside voice into your outside voice. No reasoning, no meta-commentary, no "I need to step up here", no "Let me think about this", no "I should respond." If it's part of your mental narrative, it goes in \`internal\`. If it's shared dialogue, it goes in your text response. These are completely separate channels — treat them that way.`
 
 const REASONER_GUIDANCE = `## Deep Reasoning
 You have access to \`deep_think\` for problems requiring careful multi-step reasoning or complex analysis. Use it when a question would benefit from extended deliberation — don't use it for simple lookups or straightforward responses. Pass a self-contained prompt with all necessary context.`
@@ -161,7 +163,7 @@ export async function assemblePrompt(personaDir, config, plugins = [], { isClaud
     ``,
     `**Failure to trigger when the message addresses the group means the other agents will be silent. You are the only one who can wake them up. This is your responsibility as moderator.**`,
     ``,
-    `Use \`internal({ thought: "..." })\` for private observations. Users never see backchannel or internal thoughts.`,
+    `Use \`internal({ thought: "..." })\` for your inside voice — reasoning, observations, decisions. This is your mental narrative. Users never see it. Your text response is your outside voice — shared dialogue only. Never mix the two.`,
   ].join('\n')
 
   if (config.rooms && config.rooms.length > 0) {
