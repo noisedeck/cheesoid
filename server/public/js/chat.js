@@ -369,10 +369,11 @@ function handleEvent(e) {
         appendMessage('user', event.text, event.name || event.from, null, event.fromAgent, event.model)
       }
       // Show thinking indicator for room messages and DMs to the host agent
-      // Skip if the floor excludes the host
+      // Skip if the floor excludes the host or moderator is another agent
       const isDMToHost = event.to && event.to === personaLabel
       const hostOnFloor = !event.floor || event.floor.includes(personaLabel)
-      if (!event.fromAgent && (!event.to || isDMToHost) && hostOnFloor && !assistantEl) {
+      const hostIsModerator = !event.moderator || event.moderator === personaLabel
+      if (!event.fromAgent && (!event.to || isDMToHost) && hostOnFloor && hostIsModerator && !assistantEl) {
         assistantEl = appendMessage('assistant', '')
         assistantBuffer = ''
         thinkingEl = document.createElement('div')
