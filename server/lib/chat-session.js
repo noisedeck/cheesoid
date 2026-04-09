@@ -38,7 +38,7 @@ function replaceTimestamp(prompt) {
   return prompt
 }
 
-const IDLE_THOUGHT_INTERVAL = 30 * 60 * 1000 // 30 minutes, doubles each time
+const IDLE_THOUGHT_INTERVAL = 60 * 60 * 1000 // 60 minutes, doubles each time
 const MAX_IDLE_INTERVAL = 7 * 24 * 60 * 60 * 1000 // 7 days cap
 const MAX_HISTORY = 75
 const MAX_CONTEXT_MESSAGES = 75 // max messages in the live agent context
