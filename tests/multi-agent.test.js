@@ -181,6 +181,75 @@ describe('Multi-agent room', () => {
     assert.ok(processMessageCalled, 'trigger backchannel should call _processMessage')
   })
 
+  it('_silent backchannel trigger bypasses floor-skip even when this agent is not on the floor', async () => {
+    // Regression: when the host addressed one agent explicitly ("@Green say hi"),
+    // the floor was set to [Green]. If the host later called
+    // internal({trigger:true}) to wake another agent, the recipient's
+    // _processMessage was reached — but the floor-skip at line 888 fired
+    // because floor=[Green] didn't include the recipient. The recipient
+    // returned silently. A trigger IS explicit permission to speak, so _silent
+    // must bypass the floor gate.
+    const dir = await createTestPersona('bc-silent', 'BCSilent')
+    const persona = await loadPersona(dir)
+    const room = new Room(persona)
+
+    room._moderatorPool = ['BCSilent', 'OtherAgent']
+    room._floor = ['OtherAgent']
+    room.systemPrompt = 'stub'
+    room.initialize = async () => {}
+
+    const logs = []
+    const origLog = console.log
+    console.log = (...a) => { logs.push(a.join(' ')) }
+
+    let resolveCalled = false
+    room.registry = {
+      resolve: () => { resolveCalled = true; throw new Error('PAST_SKIP') },
+    }
+
+    try {
+      await room._processMessage('home', 'system', '(backchannel from host) wake — respond to the conversation above.', { _silent: true })
+    } catch { /* stub throws after skip-gate */ }
+
+    console.log = origLog
+    assert.ok(!logs.some(l => l.includes('Not on floor — skipping response')),
+      '_silent trigger should not log "Not on floor — skipping response"')
+    assert.ok(resolveCalled,
+      'execution should reach model resolution past the floor-skip gate')
+  })
+
+  it('non-silent message still honors the floor-skip when not on the floor', async () => {
+    // Control: ordinary (non-backchannel) messages must still be gated by the
+    // floor. Only _silent trigger messages bypass.
+    const dir = await createTestPersona('bc-floor-skip', 'BCFloorSkip')
+    const persona = await loadPersona(dir)
+    const room = new Room(persona)
+
+    room._moderatorPool = ['BCFloorSkip', 'OtherAgent']
+    room._floor = ['OtherAgent']
+    room.systemPrompt = 'stub'
+    room.initialize = async () => {}
+
+    const logs = []
+    const origLog = console.log
+    console.log = (...a) => { logs.push(a.join(' ')) }
+
+    let resolveCalled = false
+    room.registry = {
+      resolve: () => { resolveCalled = true; throw new Error('PAST_SKIP') },
+    }
+
+    // Explicit @-addressing of another agent re-sets floor and, since this
+    // agent isn't addressed, the skip-gate fires.
+    await room._processMessage('home', 'someHuman', '@OtherAgent question for you', {})
+
+    console.log = origLog
+    assert.ok(logs.some(l => l.includes('Not on floor — skipping response')),
+      'non-silent message when off the floor should log the skip')
+    assert.ok(!resolveCalled,
+      'non-silent off-floor call must not reach model resolution')
+  })
+
   it('non-triggering backchannel only appends context', async () => {
     const host = servers[servers.length - 1]
 

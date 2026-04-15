@@ -579,7 +579,7 @@ export class Room {
           console.log(`[${this.persona.config.name}] Skipping backchannel trigger — already responding`)
           return
         }
-        this._processMessage(routeRoom, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above.`, { _silent: true })
+        this._processMessage(routeRoom, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above. You have been woken by a trigger already — do NOT call internal({ trigger: true }) yourself. The other agents have already been invited; cascading triggers cause duplicate responses. Just speak your own answer in chat.`, { _silent: true })
       }
     } else if (event.type === 'reaction') {
       // Relay reaction events so visitor UIs see them + persist for scrollback
@@ -883,9 +883,14 @@ export class Room {
       }
 
       // Skip agent loop when:
-      // 1. Floor is set and host is NOT on it
-      // 2. Moderator is elected and it's NOT the host — auto-trigger the visitor
-      if (floor && !floor.includes(myName)) {
+      // 1. Floor is set and this agent is NOT on it
+      // 2. Moderator is elected and it's NOT this agent — auto-trigger the visitor
+      //
+      // Exception: _silent means this call came from a backchannel trigger — the
+      // other agent/host has explicitly invited us to speak. That's permission
+      // enough to bypass the floor gate; otherwise triggered visitors get stuck
+      // silent whenever the floor is still held by whoever addressed them last.
+      if (floor && !floor.includes(myName) && !options._silent) {
         console.log(`[${this.persona.config.name}] Not on floor — skipping response`)
         return // finally block handles cleanup
       }
