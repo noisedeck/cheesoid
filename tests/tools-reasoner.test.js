@@ -26,7 +26,7 @@ function stubRoom() {
 describe('deep_think tool registration', () => {
   it('registers deep_think when reasoner is configured', async () => {
     const dir = await makeTmpDir()
-    const config = { reasoner: 'claude-opus-4-6', memory: { dir: 'memory/', auto_read: [] } }
+    const config = { reasoner: ['claude-opus-4-6'], memory: { dir: 'memory/', auto_read: [] } }
     const registry = { resolve: () => ({ modelId: 'claude-opus-4-6', provider: {} }) }
 
     const tools = await loadTools(dir, config, stubMemory(), stubState(), stubRoom(), registry)
@@ -62,7 +62,7 @@ describe('deep_think tool registration', () => {
     const registry = {
       resolve: (modelStr) => ({ modelId: 'claude-opus-4-6', provider: mockProvider }),
     }
-    const config = { reasoner: 'claude-opus-4-6', memory: { dir: 'memory/', auto_read: [] } }
+    const config = { reasoner: ['claude-opus-4-6'], memory: { dir: 'memory/', auto_read: [] } }
 
     const tools = await loadTools(dir, config, stubMemory(), stubState(), stubRoom(), registry)
     const result = await tools.execute('deep_think', { prompt: 'What is the meaning of life?' })
@@ -88,8 +88,7 @@ describe('deep_think tool registration', () => {
       resolve: () => ({ modelId: 'claude-opus-4-6', provider: failingProvider }),
     }
     const config = {
-      reasoner: 'claude-opus-4-6',
-      reasoner_fallback_models: [],
+      reasoner: ['claude-opus-4-6'],
       memory: { dir: 'memory/', auto_read: [] },
     }
 
@@ -120,8 +119,7 @@ describe('deep_think tool registration', () => {
       },
     }
     const config = {
-      reasoner: 'claude-opus-4-6',
-      reasoner_fallback_models: ['claude-sonnet-4-6'],
+      reasoner: ['claude-opus-4-6', 'claude-sonnet-4-6'],
       memory: { dir: 'memory/', auto_read: [] },
     }
 

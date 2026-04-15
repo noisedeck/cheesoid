@@ -37,16 +37,17 @@ describe('Room history', () => {
     assert.equal(room.history[0].text, 'hi there')
   })
 
-  it('caps history at 50 entries', async () => {
-    const { Room } = await import('../server/lib/chat-session.js')
+  it('caps history at MAX_HISTORY entries', async () => {
+    const { Room, MAX_HISTORY } = await import('../server/lib/chat-session.js')
     const room = new Room(mockPersona())
 
-    for (let i = 0; i < 60; i++) {
+    const total = MAX_HISTORY + 10
+    for (let i = 0; i < total; i++) {
       room.recordHistory({ type: 'user_message', name: 'alice', text: `msg ${i}` })
     }
-    assert.equal(room.history.length, 50)
-    assert.equal(room.history[0].text, 'msg 10')
-    assert.equal(room.history[49].text, 'msg 59')
+    assert.equal(room.history.length, MAX_HISTORY)
+    assert.equal(room.history[0].text, `msg ${total - MAX_HISTORY}`)
+    assert.equal(room.history[MAX_HISTORY - 1].text, `msg ${total - 1}`)
   })
 
   it('getScrollback returns history array', async () => {

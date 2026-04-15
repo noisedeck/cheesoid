@@ -24,7 +24,7 @@ function collectEvents() {
 
 describe('modality integration — step_up re-run', () => {
   it('re-runs turn with cognition model after step_up', async () => {
-    const modality = new Modality({ attention: 'haiku:anthropic', cognition: 'sonnet:anthropic' })
+    const modality = new Modality({ attention: ['haiku:anthropic'], cognition: ['sonnet:anthropic'] })
 
     // Attention provider: calls step_up tool
     const attentionProvider = makeProvider([
@@ -92,7 +92,7 @@ describe('modality integration — step_up re-run', () => {
   })
 
   it('step_down takes effect without re-run', async () => {
-    const modality = new Modality({ attention: 'haiku:anthropic', cognition: 'sonnet:anthropic' })
+    const modality = new Modality({ attention: ['haiku:anthropic'], cognition: ['sonnet:anthropic'] })
     modality.stepUp('test')
 
     const provider = makeProvider([
@@ -170,7 +170,7 @@ describe('modality integration — step_up re-run', () => {
   })
 
   it('prevents infinite loop if cognition model also calls step_up', async () => {
-    const modality = new Modality({ attention: 'haiku:anthropic', cognition: 'sonnet:anthropic' })
+    const modality = new Modality({ attention: ['haiku:anthropic'], cognition: ['sonnet:anthropic'] })
 
     // Attention provider: calls step_up
     const attentionProvider = makeProvider([

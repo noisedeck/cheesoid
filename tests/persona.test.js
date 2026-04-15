@@ -35,7 +35,7 @@ memory:
 
     const persona = await loadPersona(dir)
     assert.equal(persona.config.name, 'test')
-    assert.equal(persona.config.model, 'claude-sonnet-4-6')
+    assert.deepEqual(persona.config.model, ['claude-sonnet-4-6'])
     assert.equal(persona.config.chat.thinking_budget, 8000)
     assert.equal(persona.dir, dir)
   })
@@ -105,10 +105,10 @@ model: claude-sonnet-4-6
 reasoner: claude-opus-4-6
 `)
     const persona = await loadPersona(dir)
-    assert.equal(persona.config.reasoner, 'claude-opus-4-6')
+    assert.deepEqual(persona.config.reasoner, ['claude-opus-4-6'])
   })
 
-  it('parses reasoner_fallback_models from config', async () => {
+  it('merges legacy reasoner_fallback_models into reasoner array', async () => {
     const dir = await makePersona(`
 name: test-reasoner-fallback
 model: claude-sonnet-4-6
@@ -117,20 +117,20 @@ reasoner_fallback_models:
   - claude-sonnet-4-6
 `)
     const persona = await loadPersona(dir)
-    assert.deepEqual(persona.config.reasoner_fallback_models, ['claude-sonnet-4-6'])
+    assert.deepEqual(persona.config.reasoner, ['claude-opus-4-6', 'claude-sonnet-4-6'])
+    assert.equal(persona.config.reasoner_fallback_models, undefined, 'legacy field removed after normalize')
   })
 
-  it('parses orchestrator_fallback_models from config', async () => {
+  it('accepts reasoner as array for explicit fallback chain', async () => {
     const dir = await makePersona(`
-name: test-orch-fallback
+name: test-reasoner-array
 model: claude-sonnet-4-6
-orchestrator: claude-opus-4-6
-orchestrator_fallback_models:
-  - claude-sonnet-4-6
+reasoner:
+  - gpt-5.4:openai
+  - claude-opus-4-6
 `)
     const persona = await loadPersona(dir)
-    assert.equal(persona.config.orchestrator, 'claude-opus-4-6')
-    assert.deepEqual(persona.config.orchestrator_fallback_models, ['claude-sonnet-4-6'])
+    assert.deepEqual(persona.config.reasoner, ['gpt-5.4:openai', 'claude-opus-4-6'])
   })
 
   it('logs reasoner config when present', async () => {
@@ -141,7 +141,7 @@ orchestrator: claude-opus-4-6
 reasoner: claude-opus-4-6
 `)
     const persona = await loadPersona(dir)
-    assert.equal(persona.config.reasoner, 'claude-opus-4-6')
+    assert.deepEqual(persona.config.reasoner, ['claude-opus-4-6'])
   })
 
   it('validates cognition + attention config', async () => {
@@ -152,8 +152,33 @@ cognition: claude-sonnet-4-6
 attention: claude-haiku-4-5
 `)
     const persona = await loadPersona(dir)
-    assert.equal(persona.config.cognition, 'claude-sonnet-4-6')
-    assert.equal(persona.config.attention, 'claude-haiku-4-5')
+    assert.deepEqual(persona.config.cognition, ['claude-sonnet-4-6'])
+    assert.deepEqual(persona.config.attention, ['claude-haiku-4-5'])
+  })
+
+  it('merges legacy cognition_fallback_models into cognition array', async () => {
+    const dir = await makePersona(`
+name: test-cognition-fallback
+model: gpt-4.1-nano:openai
+cognition: claude-sonnet-4-6
+cognition_fallback_models:
+  - gpt-5.4:openai
+attention: claude-haiku-4-5
+`)
+    const persona = await loadPersona(dir)
+    assert.deepEqual(persona.config.cognition, ['claude-sonnet-4-6', 'gpt-5.4:openai'])
+    assert.equal(persona.config.cognition_fallback_models, undefined, 'legacy field removed after normalize')
+  })
+
+  it('normalizes execution tier to config.model array', async () => {
+    const dir = await makePersona(`
+name: test-execution
+execution:
+  - gpt-5.4:openai
+  - claude-haiku-4-5
+`)
+    const persona = await loadPersona(dir)
+    assert.deepEqual(persona.config.model, ['gpt-5.4:openai', 'claude-haiku-4-5'])
   })
 
   it('rejects cognition without attention', async () => {

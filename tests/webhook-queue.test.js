@@ -27,19 +27,26 @@ describe('Webhook queueing', () => {
     assert.equal(room._messageQueue[0].text, 'payload-1')
   })
 
-  it('still drops human messages when busy (they can retry)', () => {
+  it('queues human messages when busy and broadcasts them immediately', () => {
+    // Current policy: don't drop human messages while the agent is thinking.
+    // Queue them so they're processed after the current turn, and broadcast
+    // them right away so the UI shows what the user said without a lag.
     const room = new Room(mockPersona())
     room.busy = true
 
-    const errors = []
-    room.broadcast = (event) => {
-      if (event.type === 'error') errors.push(event.message)
-    }
+    const broadcasts = []
+    room.broadcast = (event) => broadcasts.push(event)
 
     room._processMessage('home', 'user1', 'hello')
-    assert.equal(room._messageQueue.length, 0)
-    assert.equal(errors.length, 1)
-    assert.ok(errors[0].includes('thinking'))
+    assert.equal(room._messageQueue.length, 1, 'human message is queued')
+    assert.equal(room._messageQueue[0].name, 'user1')
+    assert.equal(room._messageQueue[0].text, 'hello')
+    assert.equal(room._messageQueue[0]._alreadyBroadcast, true)
+
+    const userBroadcast = broadcasts.find(e => e.type === 'user_message')
+    assert.ok(userBroadcast, 'user_message event broadcast immediately')
+    assert.equal(userBroadcast.name, 'user1')
+    assert.equal(userBroadcast.text, 'hello')
   })
 
   it('caps queued webhooks at MAX_QUEUED_WEBHOOKS', () => {

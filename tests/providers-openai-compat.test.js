@@ -200,32 +200,28 @@ describe('circuit breaker integration', () => {
       throw new Error('connect ECONNREFUSED')
     }
 
-    try {
-      // First call: 3 retries, all fail — trips the circuit breaker (threshold=3)
-      await assert.rejects(
-        () => provider.streamMessage({
-          model: 'test',
-          maxTokens: 100,
-          system: 'test',
-          messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-          tools: [],
-          serverTools: [],
-        }, () => {}),
-        /fetch failed/,
-      )
-      assert.equal(fetchCount, 3, 'should have made 3 fetch attempts on first call')
+    const call = () => provider.streamMessage({
+      model: 'test',
+      maxTokens: 100,
+      system: 'test',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+      tools: [],
+      serverTools: [],
+    }, () => {})
 
-      // Second call: circuit is now open, should throw CircuitOpenError immediately
-      fetchCount = 0
+    try {
+      // Prime the breaker directly — avoids coupling the test to the singleton's
+      // threshold or the provider's internal retry/delay schedule (otherwise this
+      // test takes 10s+ per streamMessage call due to exponential backoff).
+      for (let i = 0; i < 50 && !circuitBreaker.isOpen(deadUrl); i++) {
+        circuitBreaker.recordFailure(deadUrl, 'primed for test')
+      }
+      assert.ok(circuitBreaker.isOpen(deadUrl), 'breaker should be open after priming')
+
+      // With the circuit open, one streamMessage call should make zero fetches
+      // and surface CircuitOpenError.
       await assert.rejects(
-        () => provider.streamMessage({
-          model: 'test',
-          maxTokens: 100,
-          system: 'test',
-          messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
-          tools: [],
-          serverTools: [],
-        }, () => {}),
+        call,
         (err) => {
           assert.ok(err instanceof CircuitOpenError, 'should be CircuitOpenError')
           assert.ok(err.isCircuitOpen, 'should have isCircuitOpen flag')

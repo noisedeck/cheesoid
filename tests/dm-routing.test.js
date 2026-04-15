@@ -10,7 +10,7 @@ describe('DM routing', () => {
       config: {
         name: 'hub',
         display_name: 'Hub',
-        model: 'claude-sonnet-4-6',
+        model: ['claude-sonnet-4-6'],
         hosted_rooms: ['#general'],
         chat: { prompt: 'prompts/system.md' },
         memory: { dir: 'memory/', auto_read: [] },
@@ -46,7 +46,7 @@ describe('DM routing', () => {
       config: {
         name: 'hub',
         display_name: 'Hub',
-        model: 'claude-sonnet-4-6',
+        model: ['claude-sonnet-4-6'],
         hosted_rooms: ['#general'],
         chat: { prompt: 'prompts/system.md' },
         memory: { dir: 'memory/', auto_read: [] },
@@ -56,8 +56,10 @@ describe('DM routing', () => {
     const manager = new RoomManager(persona)
 
     let triggered = false
-    const firstRoom = manager.get('#general')
-    firstRoom.sendMessage = async () => { triggered = true }
+    // routeDM dispatches DMs addressed to the host via the default room's
+    // processDM, not sendMessage. Stub processDM so the test doesn't attempt
+    // a real cognition call (which would hang on missing credentials).
+    manager._defaultRoom.processDM = async () => { triggered = true }
 
     manager.routeDM('alice', 'Hub', 'hey hub', false)
     assert.strictEqual(triggered, true)

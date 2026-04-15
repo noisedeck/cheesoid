@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { Modality } from '../server/lib/modality.js'
 
 const config = {
-  attention: 'claude-haiku-3-5:anthropic',
-  cognition: 'claude-sonnet-4-5:anthropic',
+  attention: ['claude-haiku-3-5:anthropic'],
+  cognition: ['claude-sonnet-4-5:anthropic'],
 }
 
 describe('Modality', () => {
@@ -50,13 +50,19 @@ describe('Modality', () => {
     assert.equal(result.current, 'attention')
   })
 
-  it('provides tool definitions (2 tools)', () => {
+  it('exposes only step_up in attention mode', () => {
     const m = new Modality(config)
     const tools = m.toolDefinitions()
-    assert.equal(tools.length, 2)
-    const names = tools.map(t => t.name)
-    assert.ok(names.includes('step_up'))
-    assert.ok(names.includes('step_down'))
+    assert.equal(tools.length, 1)
+    assert.equal(tools[0].name, 'step_up')
+  })
+
+  it('exposes only step_down in cognition mode', () => {
+    const m = new Modality(config)
+    m.stepUp('engaging')
+    const tools = m.toolDefinitions()
+    assert.equal(tools.length, 1)
+    assert.equal(tools[0].name, 'step_down')
   })
 
   it('executes step_up tool with _stepUp flag', () => {

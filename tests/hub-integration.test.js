@@ -73,7 +73,10 @@ describe('Hub integration', () => {
     assert.deepStrictEqual(data.hosted_rooms, ['#general', '#dev'])
   })
 
-  it('messages to different rooms are isolated', async () => {
+  it('messages tagged with their originating room in shared history', async () => {
+    // Architecture: "Agent awareness is singular — one messages array, one
+    // history" (see RoomManager docstring). History is shared across rooms,
+    // but each entry carries a `room` field identifying where it arrived.
     const dir = await createHubPersona()
     const persona = await loadPersona(dir)
     const rooms = new RoomManager(persona)
@@ -92,34 +95,26 @@ describe('Hub integration', () => {
     track(rooms, server)
     const port = server.address().port
 
-    // Send to #general
     await fetch(`http://localhost:${port}/api/chat/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'hello general', name: 'alice', room: '#general' }),
     })
-
-    // Send to #dev
     await fetch(`http://localhost:${port}/api/chat/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'hello dev', name: 'bob', room: '#dev' }),
     })
 
-    // Wait for async processing
     await new Promise(r => setTimeout(r, 100))
 
-    // Check room histories are isolated
-    const generalHistory = rooms.get('#general').getScrollback()
-    const devHistory = rooms.get('#dev').getScrollback()
-
-    const generalTexts = generalHistory.map(h => h.text)
-    assert.ok(generalTexts.includes('hello general'), 'general should have alice message')
-    assert.ok(!generalTexts.includes('hello dev'), 'general should not have bob message')
-
-    const devTexts = devHistory.map(h => h.text)
-    assert.ok(devTexts.includes('hello dev'), 'dev should have bob message')
-    assert.ok(!devTexts.includes('hello general'), 'dev should not have alice message')
+    const history = rooms.get('#general').getScrollback()
+    const general = history.find(h => h.text === 'hello general')
+    const dev = history.find(h => h.text === 'hello dev')
+    assert.ok(general, 'general message in shared history')
+    assert.ok(dev, 'dev message in shared history')
+    assert.equal(general.room, '#general', 'general message tagged with #general')
+    assert.equal(dev.room, '#dev', 'dev message tagged with #dev')
   })
 
   it('DMs are routed to both participants', async () => {
@@ -167,7 +162,10 @@ describe('Hub integration', () => {
     assert.strictEqual(aliceEvent.text, 'hey bob')
   })
 
-  it('scrollback endpoint returns room-specific history', async () => {
+  it('scrollback endpoint returns shared history regardless of room', async () => {
+    // History is shared across rooms on a single agent. The endpoint still
+    // accepts a `room` query param for routing the request to a valid room,
+    // but the returned messages are the agent's shared history.
     const dir = await createHubPersona()
     const persona = await loadPersona(dir)
     const rooms = new RoomManager(persona)
@@ -185,17 +183,15 @@ describe('Hub integration', () => {
     track(rooms, server)
     const port = server.address().port
 
-    // Add some history to #general
-    rooms.get('#general').recordHistory({ type: 'user_message', name: 'alice', text: 'test message' })
+    rooms.get('#general').recordHistory({ type: 'user_message', name: 'alice', text: 'test message', room: '#general' })
 
     const res = await fetch(`http://localhost:${port}/api/chat/scrollback?room=%23general`)
     const data = await res.json()
-    assert.ok(data.messages.length > 0)
-    assert.strictEqual(data.messages[0].text, 'test message')
+    assert.ok(data.messages.some(m => m.text === 'test message'))
 
-    // #dev should be empty
     const devRes = await fetch(`http://localhost:${port}/api/chat/scrollback?room=%23dev`)
     const devData = await devRes.json()
-    assert.strictEqual(devData.messages.length, 0)
+    assert.ok(devData.messages.some(m => m.text === 'test message'),
+      'shared history means #dev sees the same entries')
   })
 })
