@@ -267,6 +267,26 @@ main {
   color: var(--hf-text-muted);
 }
 
+.idle-thought-details > summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.idle-thought-details > summary::-webkit-details-marker { display: none; }
+.idle-thought-details > summary::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: var(--hf-space-2);
+  color: var(--hf-text-muted);
+  transition: transform 0.15s ease;
+}
+.idle-thought-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+.idle-thought-details > .idle-thought-body {
+  margin-top: var(--hf-space-2);
+}
+
 /* DM welcome header */
 .dm-welcome {
   display: flex;

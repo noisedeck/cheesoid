@@ -48,15 +48,19 @@ const HEARTBEAT_INTERVAL = 30 * 1000 // 30 seconds — keeps SSE alive through p
 // but never injected into agent context (this.messages) — the agent has
 // the participant list via presence events and doesn't need the churn.
 
-const IDLE_THOUGHT_PROMPT = `You have been idle for a while. No one is talking to you right now.
+const IDLE_THOUGHT_PROMPT = `You have been idle for a while. This turn is a private journal page — internal to you, invisible to the humans in chat unless you explicitly send a chat message via a tool.
 
-This is a moment of quiet. You are free to use tools, write in chat, or do nothing — entirely at your discretion. There is no obligation to act. Only do something if there's something genuinely on your mind — an unresolved question, something worth remembering, a thought worth sharing.
+Treat it as your own time to think:
+  - Review what's happened since you last reflected. What did you notice?
+  - Catch up on your own actions and commitments. What's still unresolved?
+  - Plan your next move. What's worth doing, remembering, or setting aside?
+  - Use tools only if they advance something already in flight — don't invent work.
 
-If you do act, be mindful: your recent conversation history includes your previous actions and tool use. Don't repeat work you've already done. Don't invoke tools just because you can.
+This is NOT a message to the user. They cannot read it. Do not address them, do not announce things to them, do not write "just a heads-up…" or "let me know if…" — if something actually needs to reach a human, send it as a real chat message via your tools. Otherwise, speak to yourself.
 
-Everything you do here — tool calls, thoughts, messages — is part of your ongoing conversation history, so be intentional about it.
+Your history contains your previous actions and thoughts — don't repeat work you already did, don't re-raise settled threads.
 
-If nothing is weighing on you, simply say so briefly and move on.`
+If nothing is on your mind, say so in one line and stop.`
 
 /**
  * A Room is a shared conversation space for one persona.
