@@ -145,6 +145,7 @@ export function createOpenAICompatProvider(config) {
   const baseUrl = config.base_url.replace(/\/$/, '')
   const apiKey = config.api_key
   const useMaxCompletionTokens = config.max_completion_tokens === true
+  const reasoningEffort = config.reasoning_effort || null
   return {
     supportsIntentRouting: true,
 
@@ -230,6 +231,13 @@ export function createOpenAICompatProvider(config) {
         stream_options: { include_usage: true },
       }
 
+      // Passthrough reasoning_effort when configured (e.g., Gemini's
+      // OpenAI-compat endpoint supports 'none'|'low'|'medium'|'high' to
+      // control thinking-token output; keeping it low prevents reasoning
+      // from leaking into the visible content stream).
+      if (reasoningEffort) {
+        body.reasoning_effort = reasoningEffort
+      }
 
       if (openaiTools.length > 0) {
         body.tools = openaiTools

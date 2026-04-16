@@ -1,6 +1,7 @@
 import { createAnthropicProvider } from './anthropic.js'
 import { createOpenAICompatProvider } from './openai-compat.js'
 import { createOpenAIResponsesProvider } from './openai-responses.js'
+import { createGeminiProvider } from './gemini.js'
 import { resolveModel } from './resolve.js'
 
 /**
@@ -76,6 +77,8 @@ export class ProviderRegistry {
         provider = createOpenAICompatProvider(config)
       } else if (type === 'openai-responses') {
         provider = createOpenAIResponsesProvider(config)
+      } else if (type === 'gemini') {
+        provider = createGeminiProvider(config)
       } else {
         throw new Error(`Unknown provider type "${type}" for provider "${name}"`)
       }
