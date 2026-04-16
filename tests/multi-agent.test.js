@@ -216,6 +216,7 @@ describe('Multi-agent room', () => {
       '_silent trigger should not log "Not on floor — skipping response"')
     assert.ok(resolveCalled,
       'execution should reach model resolution past the floor-skip gate')
+    room.destroy() // clean up idle timers so the test runner can exit
   })
 
   it('non-silent message still honors the floor-skip when not on the floor', async () => {
@@ -248,6 +249,7 @@ describe('Multi-agent room', () => {
       'non-silent message when off the floor should log the skip')
     assert.ok(!resolveCalled,
       'non-silent off-floor call must not reach model resolution')
+    room.destroy() // clean up idle timers
   })
 
   it('non-triggering backchannel only appends context', async () => {
