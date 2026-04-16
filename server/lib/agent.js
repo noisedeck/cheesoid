@@ -34,6 +34,27 @@ export function _rescueNarratedToolCall(text, toolDefs) {
   const trimmed = text.trim()
   const validNames = new Set(toolDefs.map(t => t.name))
 
+  // Strategy 0: XML-style tag wrapping JSON args, e.g.
+  //   <internal>{"backchannel": "...", "trigger": true}</internal>
+  // Haiku falls back to this when it should have used function-calling.
+  for (const name of validNames) {
+    const re = new RegExp(`<${name}>\\s*([\\s\\S]*?)\\s*</${name}>`, 'i')
+    const m = trimmed.match(re)
+    if (m) {
+      try {
+        const args = JSON.parse(m[1])
+        if (args && typeof args === 'object') {
+          return {
+            type: 'tool_use',
+            id: `toolu_rescued_${Date.now()}`,
+            name,
+            input: args,
+          }
+        }
+      } catch { /* fall through */ }
+    }
+  }
+
   // Strategy 1: try to parse the whole text as JSON
   try {
     const obj = JSON.parse(trimmed)
@@ -181,13 +202,23 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
     totalUsage.input_tokens += usage.input_tokens
     totalUsage.output_tokens += usage.output_tokens
 
-    // Rescue narrated tool calls — only when router didn't explicitly say 'none'
-    if (stopReason !== 'tool_use' && provider.supportsIntentRouting && toolChoice !== 'none' && !rescueFailed) {
+    // Rescue narrated tool calls — fires when a text block contains a tool
+    // call written as prose/XML instead of via function calling. Handles both
+    // pure-text responses (stopReason !== 'tool_use') and mixed responses
+    // where the model called some tools correctly but narrated others.
+    if (toolChoice !== 'none' && !rescueFailed) {
       const textBlock = contentBlocks.find(b => b.type === 'text')
       if (textBlock) {
         const rescued = _rescueNarratedToolCall(textBlock.text, tools.definitions)
         if (rescued) {
+          // Strip the narrated call from the text, keep any remaining text
+          const cleanedText = textBlock.text
+            .replace(/<\w+>[\s\S]*?<\/\w+>/g, '')
+            .trim()
           contentBlocks = contentBlocks.filter(b => b !== textBlock)
+          if (cleanedText) {
+            contentBlocks.push({ type: 'text', text: cleanedText })
+          }
           contentBlocks.push(rescued)
           stopReason = 'tool_use'
           onEvent({ type: 'tool_start', name: rescued.name })

@@ -580,7 +580,7 @@ export class Room {
           console.log(`[${this.persona.config.name}] Skipping backchannel trigger — already responding`)
           return
         }
-        this._processMessage(routeRoom, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above. You have been woken by a trigger already — do NOT call internal({ trigger: true }) yourself. The other agents have already been invited; cascading triggers cause duplicate responses. Just speak your own answer in chat.`, { _silent: true })
+        this._processMessage(routeRoom, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above. You have been woken by a trigger already — do NOT call internal({ trigger: true }) yourself. The other agents have already been invited; cascading triggers cause duplicate responses. Just speak your own answer in chat.`, { _silent: true, _backchannelTrigger: true })
       }
     } else if (event.type === 'reaction') {
       // Relay reaction events so visitor UIs see them + persist for scrollback
@@ -779,6 +779,7 @@ export class Room {
     }
 
     this.busy = true
+    this._backchannelTrigger = !!options._backchannelTrigger
     this.lastActivity = Date.now()
     this._clearIdleTimer()
     if (room === 'home') {
@@ -1059,6 +1060,11 @@ export class Room {
         if (client && assistantText.trim()) {
           // Include the host's room name so the response routes to the correct channel
           await client.sendMessage(assistantText.trim(), { model: assistantModel, room: this._pendingRoomChannel })
+        } else if (options._backchannelTrigger && !assistantText.trim()) {
+          // Visitor was triggered but produced no visible text (model called
+          // internal instead of speaking, or produced empty output). Log it
+          // so the silence is visible rather than a mystery to the user.
+          console.log(`[${this.persona.config.name}] Triggered but produced no text — silent`)
         }
         // Record remote interactions in own history for continuity across restarts
         this.recordHistory({ type: 'user_message', name, text })
@@ -1093,6 +1099,7 @@ export class Room {
     } finally {
       this.busy = false
       this._pendingRoom = null
+      this._backchannelTrigger = false
 
       // Flush any context messages that arrived while the agent was busy
       if (this._pendingContextMessages && this._pendingContextMessages.length > 0) {

@@ -192,6 +192,17 @@ function buildRoomTools(room, config) {
           return { output: 'Must provide at least one of: thought, backchannel', is_error: true }
         }
 
+        // Code-level block: visitors woken by a backchannel trigger cannot
+        // re-trigger. The model was told not to in the prompt, but some models
+        // (gpt-oss-120b) ignore the instruction. This catch is definitive.
+        if (input.trigger && room._backchannelTrigger) {
+          return {
+            output: 'Blocked: you were woken by a trigger and cannot re-trigger. Respond with text instead.',
+            is_error: true,
+            _endTurn: true,
+          }
+        }
+
         const parts = []
 
         if (input.thought) {
