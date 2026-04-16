@@ -38,6 +38,49 @@ function replaceTimestamp(prompt) {
   return prompt
 }
 
+/**
+ * Strip narration markers from chat text so private reasoning never leaks to
+ * the public chat stream. The per-turn rescue in agent.js catches balanced
+ * tags in a single orchestrator turn, but the model sometimes splits the
+ * narration across turns (opening tag on one turn, closing on another), and
+ * per-turn assistant-text flush writes each half to chat separately. This
+ * sanitizer runs at the final write boundary, handling:
+ *   - Balanced pairs: <internal>...</internal>, <thinking>...</thinking>, etc.
+ *   - Unbalanced open: <internal>... (truncated) — strips from tag to end.
+ *   - Orphan close:    </internal> without open — strips the tag.
+ *   - JSON-shaped reasoning blobs at the start: {"thought": ...}, {"backchannel": ...}
+ *   - Code fences containing tool pseudo-calls: ```tool_code\n print(...) \n```
+ */
+export function stripChatNarration(text) {
+  if (!text) return text
+  let cleaned = text
+  const narrationTags = ['internal', 'thinking', 'execute_protocol', 'tool_code', 'parameter', 'inner_voice', 'reasoning']
+  // Balanced pairs (greedy enough for nested content, stripped first)
+  for (const tag of narrationTags) {
+    cleaned = cleaned.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?</${tag}>`, 'gi'), '')
+  }
+  // Unbalanced open tags (model was truncated / split across turns)
+  for (const tag of narrationTags) {
+    cleaned = cleaned.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*$`, 'i'), '')
+  }
+  // Orphan close tags
+  for (const tag of narrationTags) {
+    cleaned = cleaned.replace(new RegExp(`</${tag}>`, 'gi'), '')
+  }
+  // Strip leading JSON reasoning blobs, iteratively — models sometimes emit
+  // several `{"thought":"..."}` objects in sequence before the visible reply.
+  // Each pass strips one blob at the start; we loop until no more are matched.
+  const jsonBlobRe = /^\s*\{\s*"(?:thought|backchannel|reasoning|inner_voice|analysis|inside_voice)"\s*:[\s\S]*?\}\s*(?=(?:\{\s*"|[^{]|$))/
+  for (let i = 0; i < 20; i++) {
+    const before = cleaned
+    cleaned = cleaned.replace(jsonBlobRe, '')
+    if (cleaned === before) break
+  }
+  // Triple-backtick fenced tool_code blocks
+  cleaned = cleaned.replace(/```(?:tool_code|python)?\s*(?:print|def |import )[\s\S]*?```/g, '')
+  return cleaned.trim()
+}
+
 const IDLE_THOUGHT_INTERVAL = 60 * 60 * 1000 // 60 minutes, doubles each time
 const MAX_IDLE_INTERVAL = 7 * 24 * 60 * 60 * 1000 // 7 days cap
 export const MAX_HISTORY = 40
@@ -342,8 +385,10 @@ export class Room {
   _handleAssistantTextTurn(text, model) {
     if (!text || !text.trim()) return
     if (this._pendingRoom !== 'home') return
+    const cleaned = stripChatNarration(text)
+    if (!cleaned) return
     const assistantMsgId = shortMsgId()
-    const histEntry = { type: 'assistant_message', text: text.trim(), room: this.roomName, id: assistantMsgId }
+    const histEntry = { type: 'assistant_message', text: cleaned, room: this.roomName, id: assistantMsgId }
     if (model) histEntry.model = model
     this.recordHistory(histEntry)
     this.broadcast({ type: 'assistant_message_id', id: assistantMsgId })
@@ -580,7 +625,14 @@ export class Room {
           console.log(`[${this.persona.config.name}] Skipping backchannel trigger — already responding`)
           return
         }
-        this._processMessage(routeRoom, 'system', `(backchannel from ${event.name}) ${event.text} — respond to the conversation above. You have been woken by a trigger already — do NOT call internal({ trigger: true }) yourself. The other agents have already been invited; cascading triggers cause duplicate responses. Just speak your own answer in chat.`, { _silent: true, _backchannelTrigger: true })
+        // Moderator-election triggers instruct the visitor to route (which
+        // REQUIRES calling internal). Regular backchannel triggers forbid
+        // re-triggering to avoid cascades. The two anti-cascade / route
+        // suffixes are contradictory — pick based on intent.
+        const triggerText = event.moderator_election
+          ? `(moderator trigger from ${event.name}) ${event.text}`
+          : `(backchannel from ${event.name}) ${event.text} — respond to the conversation above. You have been woken by a trigger already — do NOT call internal({ trigger: true }) yourself. The other agents have already been invited; cascading triggers cause duplicate responses. Just speak your own answer in chat.`
+        this._processMessage(routeRoom, 'system', triggerText, { _silent: true, _backchannelTrigger: !event.moderator_election })
       }
     } else if (event.type === 'reaction') {
       // Relay reaction events so visitor UIs see them + persist for scrollback
@@ -924,16 +976,31 @@ export class Room {
       }
       if (moderator && moderator !== myName) {
         // Elected moderator is a visitor — they can't self-activate, so trigger
-        // them via backchannel. Without this, visitors sit in "Waiting for
-        // moderator trigger" forever because only the host can send triggers.
-        const otherAgents = this._moderatorPool.filter(n => n !== moderator).join(', ')
+        // them via backchannel. The trigger text includes full routing
+        // guidance so the visitor knows to default to the host rather than
+        // answering on the host's behalf (regression: visitors elected by
+        // round-robin would respond directly even when the message was for
+        // the room host, leaving the host silent and the user confused).
+        const visitorAgents = this._moderatorPool.filter(n => n !== myName && n !== moderator)
+        const visitorsList = visitorAgents.length > 0 ? visitorAgents.join(', ') : '(none)'
         console.log(`[${this.persona.config.name}] Triggering elected moderator: ${moderator}`)
         this.broadcast({
           type: 'backchannel',
           name: myName,
-          text: `You are the moderator. Respond to ${name}'s message. If ${otherAgents} should also respond, call internal({ backchannel: "respond to ${name}'s message", trigger: true }).`,
+          text: [
+            `You are moderating ${name}'s message in ${myName}'s room.`,
+            ``,
+            `Read the message, then pick ONE action:`,
+            `1. Message is for ${myName} (the room host), ambiguously "you", or no one specific — call internal({ trigger: true, target: "${myName}" }). The host knows this room best. Output NO text.`,
+            `2. Message is for a specific visiting agent (${visitorsList}) — call internal({ trigger: true, target: "<agent name>" }). Output NO text.`,
+            `3. Message is for the whole group ("everyone", "all") — call internal({ trigger: true }) without target, then give a brief reply.`,
+            `4. Message is clearly addressed to YOU (${moderator}) by name — respond normally with text.`,
+            ``,
+            `When unsure, default to #1 (route to ${myName}). Do NOT answer on ${myName}'s behalf. One internal call, then stop.`,
+          ].join('\n'),
           trigger: true,
           target: moderator,
+          moderator_election: true,
         })
         return // finally block handles cleanup
       }
@@ -987,9 +1054,46 @@ export class Room {
       let assistantModel = null
       // Track actual responding model — updated on fallback
       let activeModel = orchestratorModel
+      // Streaming-narration filter: accumulate raw text_delta chunks, strip
+      // narration from the running buffer, and only broadcast the delta of
+      // CLEAN text. Prevents live-streamed `{"thought":...}` / `<internal>...`
+      // from ever reaching the client, while still preserving incremental
+      // rendering of the visible chat portion.
+      let rawTextBuffer = ''
+      let cleanTextSent = ''
       const onEvent = (event) => {
         if (event.type === 'text_delta') {
           assistantText += event.text
+          rawTextBuffer += event.text
+          // Hold back any trailing incomplete tag / JSON blob. If the tail of
+          // rawTextBuffer contains `<` without a matching `>`, or an opening
+          // `{` without a matching `}`, we can't safely decide yet whether it
+          // will resolve to narration — so only consider the "safe" prefix.
+          let safeEnd = rawTextBuffer.length
+          const lastOpen = rawTextBuffer.lastIndexOf('<')
+          if (lastOpen >= 0 && !rawTextBuffer.slice(lastOpen).includes('>')) {
+            safeEnd = Math.min(safeEnd, lastOpen)
+          }
+          const lastBrace = rawTextBuffer.lastIndexOf('{')
+          if (lastBrace >= 0 && !rawTextBuffer.slice(lastBrace).includes('}')) {
+            safeEnd = Math.min(safeEnd, lastBrace)
+          }
+          const safeBuffer = rawTextBuffer.slice(0, safeEnd)
+          const currentClean = stripChatNarration(safeBuffer)
+          // Only broadcast when the clean text is monotonically extending the
+          // previously-sent clean prefix. If it shrinks (narration was detected
+          // retroactively) we can't retract, so we hold — the end-of-turn
+          // assistant_message is the canonical record.
+          if (
+            this._pendingRoom === 'home'
+            && currentClean.length > cleanTextSent.length
+            && currentClean.startsWith(cleanTextSent)
+          ) {
+            const newChunk = currentClean.slice(cleanTextSent.length)
+            cleanTextSent = currentClean
+            this.broadcast({ ...event, text: newChunk })
+          }
+          return // suppress raw text_delta broadcast
         }
         if (event.type === 'model_fallback') {
           activeModel = event.to
@@ -1003,6 +1107,11 @@ export class Room {
         // deep_think can no longer swallow already-spoken text.
         if (event.type === 'assistant_text_turn') {
           this._handleAssistantTextTurn(event.text, event.model || activeModel)
+          // reset per-turn streaming buffers so the next orchestrator turn
+          // starts fresh — otherwise cleanTextSent carries over and the diff
+          // math breaks on the next turn's text
+          rawTextBuffer = ''
+          cleanTextSent = ''
         }
         // Tag tool events with the model that actually initiated them
         // (executor events already have model from the hybrid loop wrapper)
