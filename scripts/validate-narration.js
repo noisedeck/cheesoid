@@ -49,7 +49,7 @@ function makeProviders() {
   if (env.BLUEOCEAN_API_KEY || env.OPENAI_COMPAT_API_KEY) {
     const p = createOpenAICompatProvider({
       api_key: env.BLUEOCEAN_API_KEY || env.OPENAI_COMPAT_API_KEY,
-      base_url: env.BLUEOCEAN_BASE_URL || env.OPENAI_COMPAT_BASE_URL || 'https://api.ai.dc.blueocean.is/v1',
+      base_url: env.BLUEOCEAN_BASE_URL || env.OPENAI_COMPAT_BASE_URL || 'https://api.oryxen.ai/v1',
     })
     providers.push(['blueocean', 'UltraFast/gpt-oss-120b', p])
     providers.push(['blueocean', 'UltraFast/zai-glm-4.7', p])
