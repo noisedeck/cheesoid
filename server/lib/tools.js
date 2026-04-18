@@ -215,6 +215,7 @@ function buildRoomTools(room, config) {
             return {
               output: `Already triggered ${targetKey === '__broadcast__' ? 'the group' : targetKey} this turn. Do not repeat.`,
               is_error: true,
+              _endTurn: true,
             }
           }
         }

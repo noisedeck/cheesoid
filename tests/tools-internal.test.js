@@ -163,4 +163,30 @@ describe('internal tool', () => {
 
     assert.ok(result.is_error)
   })
+
+  it('same-target trigger retry returns is_error + _endTurn to break loop', async () => {
+    const dir = await makeTmpDir()
+    const config = {
+      agents: [{ name: 'Blue', secret: 's' }, { name: 'Green', secret: 's' }],
+      memory: { dir: 'memory/', auto_read: [] },
+    }
+    const room = stubRoom({ _pendingRoom: 'home' })
+    const tools = await loadTools(dir, config, stubMemory(), stubState(), room, null)
+
+    // First trigger to Blue — allowed
+    const first = await tools.execute('internal', { backchannel: 'Blue, say ready', trigger: true, target: 'Blue' })
+    assert.equal(first.is_error, undefined, 'first trigger to Blue should succeed')
+
+    // Second trigger to Blue — must be blocked AND end the turn, otherwise
+    // gemini-2.5-pro loops forever retrying the same call after seeing
+    // is_error alone (reproduced in test-cluster 2026-04-18).
+    const second = await tools.execute('internal', { backchannel: 'Blue again', trigger: true, target: 'Blue' })
+    assert.equal(second.is_error, true, 'duplicate target should be blocked')
+    assert.equal(second._endTurn, true, 'duplicate target must set _endTurn to stop the loop')
+    assert.match(second.output, /Already triggered Blue/)
+
+    // Different target on the same turn — still allowed (not a loop)
+    const third = await tools.execute('internal', { backchannel: 'Green, you too', trigger: true, target: 'Green' })
+    assert.equal(third.is_error, undefined, 'different target on same turn should be allowed')
+  })
 })
