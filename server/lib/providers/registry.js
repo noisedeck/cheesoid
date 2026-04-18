@@ -44,7 +44,7 @@ export class ProviderRegistry {
     if (personaConfig.orchestrator && typeof personaConfig.orchestrator === 'object') {
       const orch = personaConfig.orchestrator
       if (orch.provider === 'openai-compat' && orch.base_url) {
-        const orchName = `_orchestrator_openai_compat`
+        const orchName = `_orchestratorOpenaiCompat`
         if (!this._configs.has(orchName)) {
           this._configs.set(orchName, {
             type: 'openai-compat',

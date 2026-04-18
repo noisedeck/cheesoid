@@ -759,12 +759,12 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     totalUsage.output_tokens += usage.output_tokens
     // Track per-model metrics
     if (actualModel) {
-      if (!metrics.models[actualModel]) metrics.models[actualModel] = { calls: 0, tokens_in: 0, tokens_out: 0, latency_ms: [], tools: 0, fallbacks: 0 }
+      if (!metrics.models[actualModel]) metrics.models[actualModel] = { calls: 0, tokensIn: 0, tokensOut: 0, latencyMs: [], tools: 0, fallbacks: 0 }
       const m = metrics.models[actualModel]
       m.calls++
-      m.tokens_in += usage.input_tokens
-      m.tokens_out += usage.output_tokens
-      if (_latencyMs) m.latency_ms.push(_latencyMs)
+      m.tokensIn += usage.input_tokens
+      m.tokensOut += usage.output_tokens
+      if (_latencyMs) m.latencyMs.push(_latencyMs)
       if (actualModel !== config.model) { m.fallbacks++; metrics.fallbackCount++ }
     }
 
@@ -1027,12 +1027,12 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
           executorUsage.output_tokens += execResult.usage.output_tokens
           // Track executor model metrics
           if (usedModel) {
-            if (!metrics.models[usedModel]) metrics.models[usedModel] = { calls: 0, tokens_in: 0, tokens_out: 0, latency_ms: [], tools: 0, fallbacks: 0 }
+            if (!metrics.models[usedModel]) metrics.models[usedModel] = { calls: 0, tokensIn: 0, tokensOut: 0, latencyMs: [], tools: 0, fallbacks: 0 }
             const em = metrics.models[usedModel]
             em.calls++
-            em.tokens_in += execResult.usage.input_tokens
-            em.tokens_out += execResult.usage.output_tokens
-            if (execResult._latencyMs) em.latency_ms.push(execResult._latencyMs)
+            em.tokensIn += execResult.usage.input_tokens
+            em.tokensOut += execResult.usage.output_tokens
+            if (execResult._latencyMs) em.latencyMs.push(execResult._latencyMs)
           }
 
           const execContent = execResult.contentBlocks.map(block => {
@@ -1122,9 +1122,9 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
   metrics.duplicateToolCalls = calledTools.size < totalToolTurns ? totalToolTurns - calledTools.size : 0
   // Per-model summary
   const modelSummary = Object.entries(metrics.models).map(([model, m]) => {
-    const avgLatency = m.latency_ms.length ? Math.round(m.latency_ms.reduce((a, b) => a + b, 0) / m.latency_ms.length) : 0
-    const p95Latency = m.latency_ms.length ? Math.round(m.latency_ms.sort((a, b) => a - b)[Math.floor(m.latency_ms.length * 0.95)]) : 0
-    return `${model}: ${m.calls} calls, ${m.tokens_in}/${m.tokens_out} tok, avg ${avgLatency}ms, p95 ${p95Latency}ms${m.fallbacks ? `, ${m.fallbacks} fallback` : ''}`
+    const avgLatency = m.latencyMs.length ? Math.round(m.latencyMs.reduce((a, b) => a + b, 0) / m.latencyMs.length) : 0
+    const p95Latency = m.latencyMs.length ? Math.round(m.latencyMs.sort((a, b) => a - b)[Math.floor(m.latencyMs.length * 0.95)]) : 0
+    return `${model}: ${m.calls} calls, ${m.tokensIn}/${m.tokensOut} tok, avg ${avgLatency}ms, p95 ${p95Latency}ms${m.fallbacks ? `, ${m.fallbacks} fallback` : ''}`
   }).join(' | ')
   console.log(`[hybrid] orchestrator: ${totalUsage.input_tokens} in / ${totalUsage.output_tokens} out | executor: ${executorUsage.input_tokens} in / ${executorUsage.output_tokens} out | reasoner: ${reasonerUsage.input_tokens} in / ${reasonerUsage.output_tokens} out | tools: ${totalToolTurns} | total: ${metrics.totalLatencyMs}ms | fallbacks: ${metrics.fallbackCount}`)
   console.log(`[hybrid] models: ${modelSummary}`)
