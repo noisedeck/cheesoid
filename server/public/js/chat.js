@@ -23,6 +23,31 @@ let thinkingEl = null
 let sending = false
 let reconnectTimer = null
 let currentModel = null
+
+// SSE observability — ring buffer of transport-layer events. Dump via
+// `window.sseDiag.dump()` in devtools. Persists across hard reload via sessionStorage.
+let lastEventAt = Date.now()
+let eventCount = 0
+const SSE_DIAG = {
+  log: [],
+  push(entry) {
+    const line = `${new Date().toISOString()} ${entry}`
+    this.log.push(line)
+    if (this.log.length > 500) this.log.shift()
+    try { sessionStorage.setItem('sse-diag', JSON.stringify(this.log)) } catch {}
+    console.log('[SSE-DIAG]', line)
+  },
+  dump() { return this.log.join('\n') },
+  clear() { this.log = []; try { sessionStorage.removeItem('sse-diag') } catch {} },
+}
+try {
+  const prior = sessionStorage.getItem('sse-diag')
+  if (prior) SSE_DIAG.log = JSON.parse(prior)
+} catch {}
+window.sseDiag = SSE_DIAG
+document.addEventListener('visibilitychange', () => {
+  SSE_DIAG.push(`visibility=${document.visibilityState} msSinceLastEvent=${Date.now() - lastEventAt} readyState=${evtSource ? evtSource.readyState : 'null'}`)
+})
 const visitorStreams = new Map() // agentName → { element, buffer }
 // FIFO queue of tool chips awaiting tool_result (tools run sequentially in the
 // orchestrator loop, so order matches). Each entry is a DOM element with a
@@ -258,14 +283,24 @@ function connectSSE() {
   lastSender = null
   currentModel = null
 
+  // SSE observability — transport-layer trail for diagnosing drops
+  SSE_DIAG.push(`connect-attempt delay=${reconnectDelay}ms`)
+  const connStart = Date.now()
+
   evtSource = new EventSource(`/api/chat/stream?name=${encodeURIComponent(myName)}`)
+  evtSource.addEventListener('open', () => {
+    SSE_DIAG.push(`open readyState=${evtSource.readyState} setupMs=${Date.now() - connStart}`)
+  })
   evtSource.onmessage = handleEvent
   evtSource.onerror = () => {
+    // SSE observability — transport-layer trail for diagnosing drops
+    SSE_DIAG.push(`onerror readyState=${evtSource ? evtSource.readyState : 'null'} msSinceLastEvent=${Date.now() - lastEventAt} msSinceOpen=${Date.now() - connStart} visibility=${document.visibilityState}`)
     if (evtSource) evtSource.close()
     if (reconnectTimer) return
     // Show connection lost banner
     const banner = document.getElementById('connection-status')
     if (banner) { banner.textContent = 'Connection lost. Reconnecting...'; banner.classList.remove('hidden') }
+    SSE_DIAG.push(`banner-shown scheduled-in=${reconnectDelay}ms`)
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       connectSSE()
@@ -277,6 +312,8 @@ function connectSSE() {
 }
 
 function handleEvent(e) {
+  lastEventAt = Date.now()
+  eventCount++
   const event = JSON.parse(e.data)
 
   // In hub mode, route events to correct view
@@ -311,6 +348,7 @@ function handleEvent(e) {
       // Reconnect succeeded — reset backoff and hide banner
       reconnectDelay = 1000
       { const banner = document.getElementById('connection-status'); if (banner) banner.classList.add('hidden') }
+      SSE_DIAG.push(`scrollback-received count=${event.messages ? event.messages.length : 0}`)
       for (const msg of event.messages) {
         // Filter by view: DMs to DM views, room messages to matching room views
         if (msg.dm_from || msg.dm_to) {

@@ -307,6 +307,18 @@ export class Room {
 
   // Register an SSE client for broadcast
   addClient(res, name, isAgent = false) {
+    // SSE observability — connect/close/write-error trail for diagnosing drops
+    const connId = Math.random().toString(36).slice(2, 8)
+    const connectTs = Date.now()
+    const remoteIp = res.req?.socket?.remoteAddress || '?'
+    const ua = (res.req?.headers?.['user-agent'] || '').slice(0, 60)
+    console.log(`[SSE] connect conn=${connId} persona=${this.persona.config.name} room=${this.roomName || '_default'} name=${name || 'anon'} agent=${isAgent} ip=${remoteIp} ua="${ua}" clients=${this.clients.size + 1}`)
+    res._connId = connId
+    res._connectTs = connectTs
+    res.on('error', (err) => {
+      console.log(`[SSE] error conn=${connId} name=${name || 'anon'} code=${err.code || '-'} msg=${err.message}`)
+    })
+
     this.clients.add(res)
     if (name) {
       this.participants.set(name, Date.now())
@@ -328,6 +340,10 @@ export class Room {
     if (this.clients.size === 1) this._startHeartbeat()
 
     res.on('close', () => {
+      // SSE observability — connect/close/write-error trail for diagnosing drops
+      const duration = Date.now() - connectTs
+      console.log(`[SSE] close conn=${connId} name=${name || 'anon'} duration=${duration}ms writable=${res.writable} destroyed=${res.destroyed} clients=${this.clients.size - 1}`)
+
       this.clients.delete(res)
       if (name) {
         this.participants.delete(name)
@@ -365,7 +381,16 @@ export class Room {
     const tagged = this.roomName ? { ...event, room: this.roomName } : event
     const data = redactKeys(`data: ${JSON.stringify(tagged)}\n\n`)
     for (const client of this.clients) {
-      client.write(data)
+      try {
+        const ok = client.write(data)
+        // SSE observability — connect/close/write-error trail for diagnosing drops
+        if (ok === false) {
+          console.log(`[SSE] backpressure conn=${client._connId} type=${event.type}`)
+        }
+      } catch (err) {
+        // SSE observability — connect/close/write-error trail for diagnosing drops
+        console.log(`[SSE] write-fail conn=${client._connId} type=${event.type} code=${err.code || '-'} msg=${err.message}`)
+      }
     }
   }
 
@@ -1574,7 +1599,16 @@ export class Room {
     if (this._heartbeatTimer) return
     this._heartbeatTimer = setInterval(() => {
       for (const client of this.clients) {
-        client.write(':heartbeat\n\n')
+        try {
+          const ok = client.write(':heartbeat\n\n')
+          // SSE observability — connect/close/write-error trail for diagnosing drops
+          if (ok === false) {
+            console.log(`[SSE] heartbeat-backpressure conn=${client._connId}`)
+          }
+        } catch (err) {
+          // SSE observability — connect/close/write-error trail for diagnosing drops
+          console.log(`[SSE] heartbeat-fail conn=${client._connId} code=${err.code || '-'} msg=${err.message}`)
+        }
       }
     }, HEARTBEAT_INTERVAL)
   }
