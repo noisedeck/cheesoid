@@ -188,8 +188,8 @@ function buildRoomTools(room, config) {
         return { output: formatted }
       }
       case 'internal': {
-        if (!input.thought && !input.backchannel) {
-          return { output: 'Must provide at least one of: thought, backchannel', is_error: true }
+        if (!input.thought && !input.backchannel && !input.trigger) {
+          return { output: 'Must provide at least one of: thought, backchannel, trigger', is_error: true }
         }
 
         // Code-level block: visitors woken by a backchannel trigger cannot
@@ -233,15 +233,22 @@ function buildRoomTools(room, config) {
           parts.push(`Thought: ${input.thought}`)
         }
 
-        if (input.backchannel) {
+        // A trigger-only call (no explicit backchannel text) happens when the
+        // moderator routes a user's message to another agent as a pure
+        // handoff — the recipient doesn't need an inline context blob, only
+        // a wake signal. Synthesize a minimal text so the backchannel path
+        // fires. Without this, trigger-only calls error out and the target
+        // agent never gets woken (the room stays silent).
+        const backchannelText = input.backchannel || (input.trigger ? 'moderator handoff' : null)
+        if (backchannelText) {
           const pendingRoom = room._pendingRoom
           if (pendingRoom && pendingRoom !== 'home') {
             const client = room.roomClients.get(pendingRoom)
             if (client) {
-              await client.sendBackchannel(input.backchannel, { trigger: !!input.trigger, target: input.target || null })
+              await client.sendBackchannel(backchannelText, { trigger: !!input.trigger, target: input.target || null })
             }
           } else {
-            room.broadcast({ type: 'backchannel', name: room.persona.config.display_name, text: input.backchannel, trigger: !!input.trigger, target: input.target || null })
+            room.broadcast({ type: 'backchannel', name: room.persona.config.display_name, text: backchannelText, trigger: !!input.trigger, target: input.target || null })
           }
           if (input.trigger) {
             // Track this target so we don't re-trigger the same agent in one turn.

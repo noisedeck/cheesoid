@@ -111,6 +111,53 @@ describe('splitChatAndThought — batch', () => {
     assert.equal(r.thought, '  ')
     assert.equal(r.chat, '   ')
   })
+
+  it('harmony: final channel content routes to chat', () => {
+    const r = splitChatAndThought('<|start|>assistant<|channel|>final<|message|>hello user<|end|>')
+    assert.equal(r.chat.trim(), 'hello user')
+    assert.equal(r.thought, '')
+    assert.ok(!r.chat.includes('<|'), 'no harmony tokens in chat')
+  })
+
+  it('harmony: analysis channel content routes to thought', () => {
+    const r = splitChatAndThought('<|start|>assistant<|channel|>analysis<|message|>reasoning step 1<|end|>')
+    assert.equal(r.thought.trim(), 'reasoning step 1')
+    assert.equal(r.chat.trim(), '')
+    assert.ok(!r.thought.includes('<|'), 'no harmony tokens in thought')
+  })
+
+  it('harmony: commentary channel content routes to thought', () => {
+    const r = splitChatAndThought('<|start|>assistant<|channel|>commentary<|message|>tool call scratch<|end|>')
+    assert.equal(r.thought.trim(), 'tool call scratch')
+    assert.equal(r.chat.trim(), '')
+  })
+
+  it('harmony: multi-channel turn routes each channel to its lane', () => {
+    const input = '<|start|>assistant<|channel|>analysis<|message|>let me think<|end|><|start|>assistant<|channel|>final<|message|>here is the answer<|return|>'
+    const r = splitChatAndThought(input)
+    assert.match(r.thought, /let me think/)
+    assert.match(r.chat, /here is the answer/)
+    assert.ok(!r.chat.includes('think'), 'analysis content must not leak to chat')
+    assert.ok(!r.thought.includes('answer'), 'final content must not leak to thought')
+  })
+
+  it('harmony: mangled variants route content correctly', () => {
+    // The specific leak observed in production: `<|channel>NAME<channel|>CONTENT`
+    const leaked = '<|channel>thought\n<channel|>We\'re a persistent agent cluster.'
+    const r = splitChatAndThought(leaked)
+    // Channel name "thought" isn't "final" → route to thought lane
+    assert.match(r.thought, /persistent agent cluster/)
+    assert.equal(r.chat.trim(), '')
+    assert.ok(!r.chat.includes('<|'), 'no <| in chat')
+    assert.ok(!r.thought.includes('<|'), 'no <| in thought')
+  })
+
+  it('harmony tokens inside narration tags stripped too', () => {
+    const r = splitChatAndThought('<thinking><|channel|>analysis<|message|>reasoning here</thinking>final answer')
+    assert.ok(!r.thought.includes('<|'), 'no harmony tokens in thought')
+    assert.match(r.thought, /reasoning here/)
+    assert.match(r.chat, /final answer/)
+  })
 })
 
 describe('LaneRouter — streaming', () => {

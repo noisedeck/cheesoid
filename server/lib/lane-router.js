@@ -55,8 +55,66 @@ export function splitChatAndThought(text) {
  * Models frequently emit these as private reasoning. Pre-wrap router input
  * is simpler than extending the tag parser.
  */
-function _wrapNonTagNarration(text) {
+/**
+ * Parse OpenAI harmony format (gpt-oss and compatible models) into lane-routable
+ * content. The harmony spec frames each turn as:
+ *   <|start|>ROLE<|channel|>CHANNEL<|message|>CONTENT<|end|>
+ * Channels:
+ *   - `analysis`   → chain-of-thought reasoning → thought lane
+ *   - `commentary` → tool-call scratch / internal coordination → thought lane
+ *   - `final`      → user-facing response → chat lane
+ * Some hosting layers leak the raw tokens as text instead of consuming them as
+ * special tokens; some models emit mangled variants (`<|foo>`, `<foo|>`). This
+ * function wraps non-final channel content in <thought>...</thought> so the
+ * downstream LaneRouter routes it to the thought lane, leaves `final` content
+ * as chat, and removes control markers.
+ *
+ * Content is preserved — only markup is consumed.
+ */
+function _processHarmony(text) {
+  // Quick-exit when no harmony markers present.
+  if (!/<\|?(?:start|channel|message|end|return)/i.test(text) && !/<[\w_-]+\|>/i.test(text)) {
+    return text
+  }
+
   let out = text
+  // Pass 1: consume frame tokens that don't carry routing info. Role name
+  // after `<|start|>` is a frame element, not content — eat it with the marker
+  // so it doesn't concatenate with the following channel's content.
+  out = out.replace(/<\|?start\|?>\s*[\w_-]+\s*/gi, '')
+  out = out.replace(/<\|?(?:end|return|constrain)\|?>/gi, '')
+
+  // Pass 2: well-formed channel segments using the standard body marker.
+  //   <|channel|>NAME<|message|>CONTENT  (up to next channel or end of text)
+  const stdSegment = /<\|?channel\|?>\s*([\w_-]+)\s*<\|?message\|?>([\s\S]*?)(?=<\|?channel\|?>|$)/gi
+  out = out.replace(stdSegment, (m, channel, content) => {
+    content = content.trim()
+    if (!content) return ''
+    return channel.toLowerCase() === 'final'
+      ? content + '\n'
+      : `<thought>${content}</thought>\n`
+  })
+
+  // Pass 3: mangled variants where the body marker is a half-pipe word (e.g.
+  //   <|channel>NAME<channel|>CONTENT  — observed in the wild).
+  const mangledSegment = /<\|?channel\|?>\s*([\w_-]+)\s*<[\w_-]+\|>([\s\S]*?)(?=<\|?channel\|?>|$)/gi
+  out = out.replace(mangledSegment, (m, channel, content) => {
+    content = content.trim()
+    if (!content) return ''
+    return channel.toLowerCase() === 'final'
+      ? content + '\n'
+      : `<thought>${content}</thought>\n`
+  })
+
+  // Pass 4: residual markers that survived the structured passes.
+  out = out.replace(/<\|?(?:message|system|user|assistant|developer|tool)\|?>/gi, '')
+  out = out.replace(/<\|[\w_-]+\|?>/gi, '')
+  out = out.replace(/<[\w_-]+\|>/gi, '')
+  return out
+}
+
+function _wrapNonTagNarration(text) {
+  let out = _processHarmony(text)
   // Leading JSON reasoning blobs — capture all consecutive ones at the start
   const jsonBlobRe = /^\s*\{\s*"(?:thought|backchannel|reasoning|inner_voice|analysis|inside_voice)"\s*:[\s\S]*?\}\s*(?=(?:\{\s*"|[^{]|$))/
   let leadingBlobs = ''

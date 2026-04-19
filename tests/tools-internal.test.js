@@ -164,6 +164,62 @@ describe('internal tool', () => {
     assert.ok(result.is_error)
   })
 
+  it('trigger-only call (no backchannel text) wakes target via synthesized default', async () => {
+    // Regression: the moderator prompt tells the model to call
+    // internal({trigger:true, target:"<host>"}) with no backchannel text when
+    // routing a user message to the host. The old code rejected that shape
+    // with is_error, so the trigger was silently lost and the host never woke
+    // up — the room stayed dead silent on moderator-routes-to-host.
+    const dir = await makeTmpDir()
+    const bcSends = []
+    const mockClient = {
+      sendBackchannel: mock.fn(async (text, opts) => { bcSends.push({ text, opts }) }),
+      sendMessage: mock.fn(async () => {}),
+    }
+    const roomClients = new Map([['brad', mockClient]])
+    const config = {
+      rooms: [{ name: 'brad', url: 'http://localhost:3001', secret: 's' }],
+      memory: { dir: 'memory/', auto_read: [] },
+    }
+    const room = stubRoom({ _pendingRoom: 'brad', roomClients })
+    const tools = await loadTools(dir, config, stubMemory(), stubState(), room, null)
+
+    const result = await tools.execute('internal', { trigger: true, target: 'Brad' })
+
+    assert.equal(result.is_error, undefined, 'trigger-only must succeed, not is_error')
+    assert.equal(mockClient.sendBackchannel.mock.callCount(), 1, 'sendBackchannel must fire exactly once')
+    assert.ok(bcSends[0].text.length > 0, 'synthesized backchannel text must be non-empty')
+    assert.equal(bcSends[0].opts.trigger, true, 'trigger flag must propagate')
+    assert.equal(bcSends[0].opts.target, 'Brad', 'target must propagate')
+  })
+
+  it('trigger-only broadcast (no target) fires home-room backchannel', async () => {
+    const dir = await makeTmpDir()
+    const config = {
+      agents: [{ name: 'Blue', secret: 's' }, { name: 'Green', secret: 's' }],
+      memory: { dir: 'memory/', auto_read: [] },
+    }
+    const room = stubRoom({ _pendingRoom: 'home' })
+    const tools = await loadTools(dir, config, stubMemory(), stubState(), room, null)
+
+    const result = await tools.execute('internal', { trigger: true })
+
+    assert.equal(result.is_error, undefined, 'trigger-only group broadcast must succeed')
+    const calls = room.broadcast.mock.calls.map(c => c.arguments[0])
+    const bcEvent = calls.find(c => c.type === 'backchannel' && c.trigger === true)
+    assert.ok(bcEvent, 'home-room backchannel event must be broadcast')
+    assert.ok(bcEvent.text.length > 0, 'synthesized text must be non-empty')
+  })
+
+  it('internal with no args at all still rejects', async () => {
+    const dir = await makeTmpDir()
+    const config = { agents: [{ name: 'Blue', secret: 's' }], memory: { dir: 'memory/', auto_read: [] } }
+    const room = stubRoom()
+    const tools = await loadTools(dir, config, stubMemory(), stubState(), room, null)
+    const result = await tools.execute('internal', {})
+    assert.ok(result.is_error, 'zero-arg call must still be rejected')
+  })
+
   it('same-target trigger retry returns is_error + _endTurn to break loop', async () => {
     const dir = await makeTmpDir()
     const config = {
