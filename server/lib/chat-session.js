@@ -770,7 +770,13 @@ export class Room {
     try {
       if (!this.systemPrompt) await this.initialize()
 
-      this.messages.push({ role: 'user', content: `${from}: ${text}` })
+      // DM turns: prepend a (system) marker so the model sees this turn as
+      // a DM even without reading the system prompt afresh. The marker
+      // uses the same `(system) ...` convention as floor-control notices
+      // elsewhere in the codebase. We do NOT prefix the user's text itself
+      // — prefixes tend to get mimicked back into the reply.
+      const dmMarker = `(system) The next message is a private 1:1 DM from ${from}. Your reply goes only to ${from}, not to any shared room.`
+      this.messages.push({ role: 'user', content: `${dmMarker}\n\n${from}: ${text}` })
       this.recordHistory({ type: 'user_message', name: from, text, dm_from: from, dm_to: this.persona.config.display_name })
 
       const hasModality = this.modality?.isModal

@@ -73,4 +73,29 @@ describe('DM-mode prompt assembly', () => {
     // processDM integration harness exists.
     assert.ok(true, 'see Task 3 + Task 4 for end-to-end coverage')
   })
+
+  it('processDM prepends a (system) marker to the DM user message', async () => {
+    // We verify the format by scanning the source — the actual push happens
+    // in chat-session.js inside processDM. The test fixes the format so
+    // future edits can't silently remove the marker.
+    const from = 'Alice'
+    const text = 'This is a test private message!'
+    const expected = `(system) The next message is a private 1:1 DM from ${from}. Your reply goes only to ${from}, not to any shared room.\n\n${from}: ${text}`
+
+    const src = await import('node:fs').then(fs =>
+      fs.promises.readFile(
+        new URL('../server/lib/chat-session.js', import.meta.url),
+        'utf8',
+      ),
+    )
+
+    assert.ok(
+      src.includes('(system) The next message is a private 1:1 DM'),
+      'chat-session.js must prepend a (system) DM marker at the DM push site',
+    )
+    assert.ok(
+      src.includes('not to any shared room'),
+      'DM marker must explicitly deny the shared-room framing',
+    )
+  })
 })
