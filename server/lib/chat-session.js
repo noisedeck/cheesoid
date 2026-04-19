@@ -432,14 +432,47 @@ export class Room {
   }
 
   /**
+   * Persist provider-native thinking content (gemini `thought: true` parts,
+   * anthropic thinking blocks) as an assistant_thought history entry so it
+   * survives reload. Live broadcast of the thinking content happened via the
+   * `thinking_delta` stream that runs alongside text_delta.
+   */
+  _handleAssistantThoughtTurn(text, model) {
+    if (!text || !text.trim()) return
+    if (this._pendingRoom !== 'home') return
+    const agentName = this.persona.config.display_name
+    const thoughtId = shortMsgId()
+    const entry = {
+      type: 'assistant_thought',
+      text: text.trim(),
+      name: agentName,
+      id: thoughtId,
+      room: this.roomName,
+    }
+    if (model) entry.model = model
+    this.recordHistory(entry)
+    this.broadcast({ type: 'assistant_thought_id', id: thoughtId })
+  }
+
+  /**
    * RAFT-like moderator election. Returns the current moderator name and advances
    * the index. If the elected moderator is busy, cycles through the pool once
    * to find an available agent. Returns null if all are busy (shouldn't happen
    * since the host's busy flag is checked before calling this).
    */
   _electModerator() {
-    if (this._moderatorPool.length <= 1) return this._moderatorPool[0] || null
-    const pool = this._moderatorPool
+    // Filter the pool to agents actually present right now. The host always
+    // counts as present. Visitor agents are present when they hold an SSE
+    // subscription to the host (tracked as participants on the room). Without
+    // this filter, the pool rotates to agents that are configured but offline,
+    // the moderator trigger broadcasts into a dead socket, and the user's
+    // message sits unanswered until the rotation reaches someone live.
+    const myName = this.persona.config.display_name
+    const present = new Set(this.participantList)
+    present.add(myName)
+    const live = this._moderatorPool.filter(n => present.has(n))
+    const pool = live.length > 0 ? live : [myName]
+    if (pool.length <= 1) return pool[0] || null
     const start = this._moderatorIndex % pool.length
     this._moderatorIndex++
     return pool[start]
@@ -934,7 +967,10 @@ export class Room {
         } else {
           // No floor set — moderator orchestrates
           moderator = this._electModerator()
-          console.log(`[${this.persona.config.name}] Moderator: ${moderator} (no floor, pool: ${this._moderatorPool.join(', ')})`)
+          const myName = this.persona.config.display_name
+          const present = new Set(this.participantList); present.add(myName)
+          const livePool = this._moderatorPool.filter(n => present.has(n))
+          console.log(`[${this.persona.config.name}] Moderator: ${moderator} (no floor, pool: ${livePool.join(', ')})`)
         }
       }
 
@@ -1181,6 +1217,14 @@ export class Room {
           this._handleAssistantTextTurn(event.text, event.model || activeModel)
           // reset per-turn streaming state for the next orchestrator turn
           laneRouter = new LaneRouter()
+        }
+        if (event.type === 'assistant_thought_turn') {
+          // Provider-native thinking content (gemini `thought: true`,
+          // anthropic thinking blocks). Persist to the thought lane so the
+          // content survives reload, not just the live stream. Live
+          // rendering already happened via the `thinking_delta` events that
+          // came through earlier.
+          this._handleAssistantThoughtTurn(event.text, event.model || activeModel)
         }
         // Tag tool events with the model that actually initiated them
         // (executor events already have model from the hybrid loop wrapper)

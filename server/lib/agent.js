@@ -773,6 +773,17 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
     if (turnText) {
       onEvent({ type: 'assistant_text_turn', text: turnText, model: actualModel })
     }
+    // Provider-native thinking content (gemini `thought: true` parts,
+    // anthropic thinking blocks). Emit so chat-session can persist it to
+    // the thought lane of history and the user can see the reasoning on
+    // reload, not just during the live stream's thinking_delta events.
+    const thoughtText = assistantContent
+      .filter(b => b.type === 'thinking' && b.thinking?.trim())
+      .map(b => b.thinking)
+      .join('\n')
+    if (thoughtText) {
+      onEvent({ type: 'assistant_thought_turn', text: thoughtText, model: actualModel })
+    }
 
     // No tool use — orchestrator is done. Narration wrappers in the turn
     // text are split into chat and thought lanes downstream

@@ -608,7 +608,42 @@ function handleEvent(e) {
       break
 
     case 'thinking_delta':
-      // Indicator already shown from user_message — nothing extra needed
+      // Provider-native thinking content (Anthropic thinking blocks, Gemini
+      // `thought: true` parts). Routes to the thought lane so the user sees
+      // the model's reasoning — not hidden, not stripped.
+      if (event.visiting) {
+        const agentName = event.agentName
+        if (!visitorStreams.has(agentName)) {
+          const el = appendMessage('assistant', '', agentName, null, true)
+          el.classList.add('visitor-message')
+          el.style.borderLeftColor = nameColor(agentName)
+          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: null, thoughtEl: null, thoughtBuffer: '' })
+        }
+        const vs = visitorStreams.get(agentName)
+        if (vs.thinkingEl) { vs.thinkingEl.remove(); vs.thinkingEl = null }
+        if (!vs.thoughtEl) {
+          vs.thoughtEl = ensureThoughtBlock(vs.element)
+          vs.thoughtBuffer = ''
+        }
+        vs.thoughtBuffer += event.text
+        const tBody = vs.thoughtEl.querySelector('.assistant-thought-body')
+        if (tBody) tBody.innerHTML = renderMarkdown(vs.thoughtBuffer)
+        scrollToBottom()
+      } else {
+        if (!assistantEl) {
+          assistantEl = appendMessage('assistant', '')
+          assistantBuffer = ''
+        }
+        if (thinkingEl) { thinkingEl.remove(); thinkingEl = null }
+        if (!assistantThoughtEl) {
+          assistantThoughtEl = ensureThoughtBlock(assistantEl)
+          assistantThoughtBuffer = ''
+        }
+        assistantThoughtBuffer += event.text
+        const tBody = assistantThoughtEl.querySelector('.assistant-thought-body')
+        if (tBody) tBody.innerHTML = renderMarkdown(assistantThoughtBuffer)
+        scrollToBottom()
+      }
       break
 
     case 'text_delta':
@@ -698,7 +733,7 @@ function handleEvent(e) {
           vThinking.className = 'thinking-indicator'
           vThinking.innerHTML = '<span>thinking</span><div class="thinking-dots"><span></span><span></span><span></span></div>'
           el.appendChild(vThinking)
-          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: vThinking })
+          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: vThinking, thoughtEl: null, thoughtBuffer: '' })
         }
         // Remove visitor thinking indicator on first tool
         const vs = visitorStreams.get(agentName)
@@ -707,7 +742,15 @@ function handleEvent(e) {
           vs.thinkingEl = null
         }
         appendTool(vs.element, `Using tool: ${event.name}...`, false, event.model)
-      } else if (assistantEl && !event.idle) {
+      } else if (!event.idle) {
+        // If no assistant bubble exists yet (e.g. a backchannel-triggered
+        // turn that ran without a visible user_message), create one now so
+        // the tool chip has a parent. Without this, tool chips vanish when
+        // a silent trigger kicks off a host turn.
+        if (!assistantEl) {
+          assistantEl = appendMessage('assistant', '')
+          assistantBuffer = ''
+        }
         // Render a running-state chip with live elapsed timer. The chip stays
         // visually in-flight until tool_result arrives — critical affordance
         // for long-running tools like deep_think.
@@ -729,7 +772,11 @@ function handleEvent(e) {
             vs.element.appendChild(vs.thinkingEl)
           }
         }
-      } else if (assistantEl && !event.idle) {
+      } else if (!event.idle) {
+        if (!assistantEl) {
+          assistantEl = appendMessage('assistant', '')
+          assistantBuffer = ''
+        }
         // Finalize the matching running-state chip in place (FIFO, since tools
         // execute sequentially). Fall back to a fresh chip if no match —
         // shouldn't happen in normal flow but protects against dropped events.
