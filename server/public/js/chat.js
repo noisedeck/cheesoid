@@ -617,7 +617,7 @@ function handleEvent(e) {
           const el = appendMessage('assistant', '', agentName, null, true)
           el.classList.add('visitor-message')
           el.style.borderLeftColor = nameColor(agentName)
-          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: null, thoughtEl: null, thoughtBuffer: '' })
+          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: null, thoughtEl: null, thoughtBuffer: '', runningTools: [] })
         }
         const vs = visitorStreams.get(agentName)
         if (vs.thinkingEl) { vs.thinkingEl.remove(); vs.thinkingEl = null }
@@ -653,7 +653,7 @@ function handleEvent(e) {
           const el = appendMessage('assistant', '', agentName, null, true)
           el.classList.add('visitor-message')
           el.style.borderLeftColor = nameColor(agentName)
-          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: null, thoughtEl: null, thoughtBuffer: '' })
+          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: null, thoughtEl: null, thoughtBuffer: '', runningTools: [] })
         }
         const vs = visitorStreams.get(agentName)
         if (vs.thinkingEl) { vs.thinkingEl.remove(); vs.thinkingEl = null }
@@ -688,7 +688,7 @@ function handleEvent(e) {
           const el = appendMessage('assistant', '', agentName, null, true)
           el.classList.add('visitor-message')
           el.style.borderLeftColor = nameColor(agentName)
-          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: null, thoughtEl: null, thoughtBuffer: '' })
+          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: null, thoughtEl: null, thoughtBuffer: '', runningTools: [] })
         }
         const vs = visitorStreams.get(agentName)
         if (vs.thinkingEl) { vs.thinkingEl.remove(); vs.thinkingEl = null }
@@ -733,7 +733,7 @@ function handleEvent(e) {
           vThinking.className = 'thinking-indicator'
           vThinking.innerHTML = '<span>thinking</span><div class="thinking-dots"><span></span><span></span><span></span></div>'
           el.appendChild(vThinking)
-          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: vThinking, thoughtEl: null, thoughtBuffer: '' })
+          visitorStreams.set(agentName, { element: el, buffer: '', thinkingEl: vThinking, thoughtEl: null, thoughtBuffer: '', runningTools: [] })
         }
         // Remove visitor thinking indicator on first tool
         const vs = visitorStreams.get(agentName)
@@ -741,7 +741,9 @@ function handleEvent(e) {
           vs.thinkingEl.remove()
           vs.thinkingEl = null
         }
-        appendTool(vs.element, `Using tool: ${event.name}...`, false, event.model)
+        if (!vs.runningTools) vs.runningTools = []
+        const vChipEl = appendRunningTool(vs.element, event.name, event.model)
+        vs.runningTools.push(vChipEl)
       } else if (!event.idle) {
         // If no assistant bubble exists yet (e.g. a backchannel-triggered
         // turn that ran without a visible user_message), create one now so
@@ -763,7 +765,18 @@ function handleEvent(e) {
       if (event.visiting) {
         const vs = visitorStreams.get(event.agentName)
         if (vs) {
-          appendTool(vs.element, `${event.name}: ${truncate(JSON.stringify(event.result), 200)}`, !!(event.result && event.result.is_error), event.model)
+          // Finalize the matching running chip in place (FIFO — tools execute
+          // sequentially). Match host behavior so tool_start + tool_result
+          // render as ONE chip, not two. Fallback creates a fresh chip if the
+          // event pair got out of sync.
+          const vChip = vs.runningTools?.shift()
+          const vIsErr = !!(event.result && event.result.is_error)
+          const vResultText = `${event.name}: ${truncate(JSON.stringify(event.result), 200)}`
+          if (vChip) {
+            finalizeRunningTool(vChip, vResultText, vIsErr)
+          } else {
+            appendTool(vs.element, vResultText, vIsErr, event.model)
+          }
           // Re-show thinking indicator for visitor
           if (!vs.thinkingEl) {
             vs.thinkingEl = document.createElement('div')
