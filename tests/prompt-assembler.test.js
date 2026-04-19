@@ -347,4 +347,34 @@ describe('assemblePrompt', () => {
     assert.ok(result.includes('step_up'), 'should mention step_up tool')
     assert.ok(result.includes('step_down'), 'should mention step_down tool')
   })
+
+  it('defaults to room context with shared-room framing', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'Persona voice here.',
+    })
+
+    const result = await assemblePrompt(dir, {
+      chat: { prompt: 'prompts/system.md' },
+    })
+
+    assert.ok(result.includes('shared room'), 'should include shared-room framing by default')
+    assert.ok(!result.includes('private 1:1 DM'), 'should NOT include DM framing by default')
+  })
+
+  it('injects DM context with partner name when mode=dm', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'Persona voice here.',
+    })
+
+    const result = await assemblePrompt(dir, {
+      chat: { prompt: 'prompts/system.md' },
+    }, [], { context: { mode: 'dm', dmPartner: 'Alice' } })
+
+    assert.ok(result.includes('private 1:1 DM'), 'should include DM framing')
+    assert.ok(result.includes('Alice'), 'should name the DM partner')
+    assert.ok(!result.includes('You are in a shared room'),
+      'should NOT include shared-room framing in DM mode')
+  })
 })

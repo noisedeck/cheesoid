@@ -55,6 +55,26 @@ CRITICAL — Inside voice vs. outside voice: You have two voices. Your OUTSIDE v
 
 CRITICAL — Reactions are TOOL CALLS, not text: If someone asks you to react to a message, or if you want to react to a message, you MUST call the \`react_to_message\` tool with the messageId and emoji. Typing an emoji ("👍", "🎉", etc.) in your text response is NOT a reaction — it is a chat message containing emoji characters. These are different things. When asked "please react", call \`react_to_message\`; do NOT type the emoji in your text response. NEVER send a chat message whose content is just emoji. NEVER both call the tool and also type the emoji. After calling \`react_to_message\`, END YOUR TURN WITH ZERO TEXT OUTPUT — no emoji, no "done", no "reaction added", no acknowledgment of any kind. The reaction itself is the complete response. Do not narrate it, do not confirm it, do not echo it. Silence.`
 
+const ROOM_CONTEXT = `## Conversation Context — Shared Room
+
+You are in a shared room. Multiple people and agents may be present. Messages arrive as \`name: text\`. Your replies go to the room — everyone present reads them.
+
+- Respond in plain text. Do not prefix your responses with your own name — the UI already shows your name next to everything you say.
+- Address people by name when it's useful for clarity.
+- If another agent sends a DM that is relayed into the room as \`(system) X sent a DM to Y: "..."\`, treat it as out-of-band context — do not respond to it as if it were addressed to you.`
+
+function dmContext(partner) {
+  const who = partner || 'this person'
+  return `## Conversation Context — Private 1:1 DM
+
+This turn is a private 1:1 DM with ${who}. Your reply is visible ONLY to ${who} — it does NOT go to any shared room, and no other person or agent can see it.
+
+- There is no shared room for this exchange. Do not claim "all my messages go to the room" or "I can only speak publicly" — you are speaking privately right now.
+- There is no floor control, no moderator election, and no turn-taking. Respond directly to ${who}.
+- Do not prefix your reply with \`(DM)\` or any routing marker — the system handles routing. Just reply naturally.
+- Past messages in your history that came from rooms remain room messages. This system note scopes ONLY to the most recent DM exchange.`
+}
+
 function modalityGuidance({ hasReasoner }) {
   const gears = hasReasoner
     ? '**Attention**, **Cognition**, and **Reasoner**'
@@ -141,7 +161,13 @@ export function currentTimestamp() {
  * For openai-compat: returns an array of {role: 'system', content} objects
  * representing a 4-layer hierarchy for multi-system-message delivery.
  */
-export async function assemblePrompt(personaDir, config, plugins = [], { isClaude = true, toolJournal = null } = {}) {
+export async function assemblePrompt(personaDir, config, plugins = [], {
+  isClaude = true,
+  toolJournal = null,
+  context = { mode: 'room', dmPartner: null },
+} = {}) {
+  const mode = context?.mode === 'dm' ? 'dm' : 'room'
+  const dmPartner = context?.dmPartner || null
   const isOpenAICompat = !isClaude || config.provider === 'openai-compat'
   const isHybrid = !!config.orchestrator
   const isModal = !!(config.cognition?.length && config.attention?.length)
@@ -168,6 +194,9 @@ export async function assemblePrompt(personaDir, config, plugins = [], { isClaud
   // Room sections
   const operationalSections = []
 
+  // Context framing — either shared-room or DM — always first so it dominates
+  operationalSections.push(mode === 'dm' ? dmContext(dmPartner) : ROOM_CONTEXT)
+
   const TURN_TAKING = [
     `## Multi-Agent Turn-Taking — CRITICAL`,
     ``,
@@ -188,11 +217,12 @@ export async function assemblePrompt(personaDir, config, plugins = [], { isClaud
     `Use \`internal({ thought: "..." })\` for your inside voice — reasoning, observations, decisions. This is your mental narrative. Users never see it. Your text response is your outside voice — shared dialogue only. Never mix the two.`,
   ].join('\n')
 
-  if (config.rooms && config.rooms.length > 0) {
+  // Multi-agent turn-taking only applies in room mode
+  if (mode === 'room' && config.rooms && config.rooms.length > 0) {
     operationalSections.push(TURN_TAKING)
   }
 
-  if (config.agents && config.agents.length > 0) {
+  if (mode === 'room' && config.agents && config.agents.length > 0) {
     operationalSections.push(TURN_TAKING)
   }
 
