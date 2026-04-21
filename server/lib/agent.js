@@ -286,6 +286,26 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
     const cleanedContent = assistantContent.filter(b => b.type !== 'thinking')
     messages.push({ role: 'assistant', content: cleanedContent })
 
+    // Emit per-turn text and native thinking as standalone events so downstream
+    // listeners (chat-session) can persist them to history the same way they do
+    // for runHybridAgent. Without these events, a single-model persona streams
+    // text deltas live to clients but never writes chat messages to durable
+    // history, and a page refresh loses everything the agent said.
+    const turnText = cleanedContent
+      .filter(b => b.type === 'text' && b.text?.trim())
+      .map(b => b.text)
+      .join('\n')
+    if (turnText) {
+      onEvent({ type: 'assistant_text_turn', text: turnText, model: config.model })
+    }
+    const thoughtText = assistantContent
+      .filter(b => b.type === 'thinking' && b.thinking?.trim())
+      .map(b => b.thinking)
+      .join('\n')
+    if (thoughtText) {
+      onEvent({ type: 'assistant_thought_turn', text: thoughtText, model: config.model })
+    }
+
     // If no tool use, we're done. Narration content in the turn is routed
     // to the thought lane downstream (chat-session.js splitChatAndThought);
     // nothing is dropped, nothing is retried. Both lanes render to the user.
