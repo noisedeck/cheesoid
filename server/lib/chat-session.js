@@ -1089,14 +1089,14 @@ export class Room {
         ].join('\n')
       }
 
-      // Inject floor context into the message so agents know who's speaking
+      // Floor context goes on the system-prompt addendum, NOT on the user
+      // message. Suffixing the user message ("...\n[floor: Brad]") leaks into
+      // chat output: open-weights executors mimic the marker straight back into
+      // their reply. Same lesson learned for moderatorAddendum below and for
+      // DM markers in processDM ("prefixes tend to get mimicked back").
       if (isMultiAgent && floor) {
-        const floorNote = `[floor: ${floor.join(', ')}]`
-        // Append to the user message already pushed
-        const lastMsg = this.messages[this.messages.length - 1]
-        if (lastMsg?.role === 'user') {
-          lastMsg.content += `\n${floorNote}`
-        }
+        const floorAddendum = `\n\n## CURRENT FLOOR\n\nFloor: ${floor.join(', ')}. This is context for routing — never repeat it in your reply.`
+        moderatorAddendum = (moderatorAddendum || '') + floorAddendum
       }
 
       // Skip agent loop when:

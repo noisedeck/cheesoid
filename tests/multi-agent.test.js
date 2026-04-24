@@ -287,6 +287,42 @@ describe('Multi-agent room', () => {
     room.destroy()
   })
 
+  it('floor marker is NOT appended to user messages (would echo back into chat)', async () => {
+    // Regression: brad's chat output started with "[floor: Brad]" because the
+    // floor note was appended as a suffix to the user message in this.messages.
+    // Open-weights executors mimic that suffix straight back into their reply.
+    // Same lesson the codebase already learned for moderatorAddendum (line 1293
+    // comment: "Append moderator duties to system prompt — NOT to messages
+    // (prevents echo leak)") and for DM markers (lines 791-795: "prefixes tend
+    // to get mimicked back into the reply"). The floor note must live in the
+    // system prompt, not in the user message.
+    const dir = await createTestPersona('floor-noecho', 'Brad')
+    const persona = await loadPersona(dir)
+    const room = new Room(persona)
+
+    room._moderatorPool = ['Brad', 'Alpha']
+    room._floor = ['Brad']
+    room.systemPrompt = 'stub'
+    room.initialize = async () => {}
+
+    // Throw at model resolution so we stop before agent execution but AFTER
+    // the floor-injection codepath would have run. The catch in _processMessage
+    // swallows non-provider errors silently (no .layer), so no rethrow needed.
+    room.registry = {
+      resolve: () => { throw new Error('PAST_FLOOR_INJECT') },
+    }
+
+    await room._processMessage('home', 'Alex', 'hey brad how is it going')
+
+    const lastUser = [...room.messages].reverse().find(m => m.role === 'user')
+    assert.ok(lastUser, 'user message should be in context')
+    assert.ok(lastUser.content.includes('hey brad how is it going'),
+      'user text should be present')
+    assert.ok(!lastUser.content.includes('[floor:'),
+      `user message must not carry "[floor: ...]" suffix — got: ${JSON.stringify(lastUser.content)}`)
+    room.destroy()
+  })
+
   it('non-triggering backchannel only appends context', async () => {
     const host = servers[servers.length - 1]
 
