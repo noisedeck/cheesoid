@@ -170,8 +170,27 @@ function buildRoomTools(room, config) {
     switch (name) {
       case 'send_chat_message': {
         const chatMsgId = shortMsgId()
-        room.broadcast({ type: 'assistant_message', text: input.text, id: chatMsgId })
+        const agentName = room.persona.config.display_name
+        // Include name on the broadcast so visitors can attribute the chat
+        // when they receive it via SSE. Recorded history entries omit name
+        // (existing convention — scrollback distinguishes host vs visiting
+        // agent on `name` presence; the host's own messages stay nameless).
+        const event = { type: 'assistant_message', text: input.text, id: chatMsgId, name: agentName }
+        // Carry the LLM's addressing intent (from internal({trigger,target})
+        // calls earlier in this turn) onto the chat event so visitors can
+        // route via structured data, not text scraping.
+        const triggers = room._triggerTargetsThisTurn ? [...room._triggerTargetsThisTurn] : []
+        const addressedNames = triggers.filter(t => t !== '__broadcast__')
+        if (addressedNames.length > 0) event.addressed_to = addressedNames
+        if (triggers.includes('__broadcast__')) event.addressed_all = true
+        room.broadcast(event)
         room.recordHistory({ type: 'assistant_message', text: input.text, id: chatMsgId, room: room.roomName })
+        // Flush any backchannel triggers queued earlier this turn now that
+        // the chat broadcast has gone out — visitors receive chat first,
+        // wake second, never the other way.
+        if (typeof room._flushPendingBackchannels === 'function') {
+          room._flushPendingBackchannels()
+        }
         // Do NOT push to room.messages here — the agent loop manages its own
         // message array. Pushing an assistant message mid-tool-execution corrupts
         // the tool_use/tool_result sequence and causes API 400 errors.
@@ -248,7 +267,22 @@ function buildRoomTools(room, config) {
               await client.sendBackchannel(backchannelText, { trigger: !!input.trigger, target: input.target || null })
             }
           } else {
-            room.broadcast({ type: 'backchannel', name: room.persona.config.display_name, text: backchannelText, trigger: !!input.trigger, target: input.target || null })
+            const event = { type: 'backchannel', name: room.persona.config.display_name, text: backchannelText, trigger: !!input.trigger, target: input.target || null }
+            // Defer trigger broadcasts until after the host's own chat goes
+            // out this turn (flush points: _handleAssistantTextTurn,
+            // send_chat_message, _processMessage finally, _idleThought
+            // finally). The model commonly fires internal({trigger,target})
+            // EARLIER in the orchestrator loop than the chat that gives the
+            // wake context — without deferral the visitor wakes ungrounded
+            // and responds before knowing what was said. Non-trigger
+            // backchannels (pure context messages, no wake) still broadcast
+            // immediately because there is no race to resolve.
+            const isHomeTurn = pendingRoom === 'home' && room.busy === true
+            if (event.trigger && isHomeTurn && typeof room._queueBackchannel === 'function') {
+              room._queueBackchannel(event)
+            } else {
+              room.broadcast(event)
+            }
           }
           if (input.trigger) {
             // Track this target so we don't re-trigger the same agent in one turn.

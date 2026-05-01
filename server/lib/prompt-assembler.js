@@ -225,6 +225,18 @@ export async function assemblePrompt(personaDir, config, plugins = [], {
     ``,
     `**Failure to trigger when the message addresses the group means the other agents will be silent. You are the only one who can wake them up. This is your responsibility as moderator.**`,
     ``,
+    `### Addressing other agents in your own response — applies on EVERY turn, not just moderator turns`,
+    ``,
+    `Other agents do NOT see your chat unless you wake them via \`internal\`. They are silent listeners until triggered. When YOUR text response names another agent — "Hello, Blue", "Blue, ...", "Thanks, Green", "what does Green think?", "ask Blue to ..." — you MUST call \`internal({ trigger: true, target: "<exact agent name>" })\` for that agent. The trigger and the chat are one indivisible action.`,
+    ``,
+    `This rule applies even when:`,
+    `- You hold the floor and are responding directly to a human`,
+    `- A human asked you to greet, ask, or relay something to another agent`,
+    `- You're proactively speaking from an idle thought`,
+    `- You're using the \`send_chat_message\` tool from inside a tool call`,
+    ``,
+    `If you write "Hello, Blue" without triggering Blue, Blue will not see the message and will not respond. The conversation will silently break.`,
+    ``,
     `Use \`internal({ thought: "..." })\` for your inside voice — reasoning, observations, decisions. This is your mental narrative. Users never see it. Your text response is your outside voice — shared dialogue only. Never mix the two.`,
   ].join('\n')
 

@@ -124,6 +124,7 @@ export class Room {
         _moderatorIndex: 0,
         _floor: null, // array of agent names that currently have the floor, or null
         _wakeupSchedulers: [],
+        _pendingBackchannels: [],
       }
       for (const a of persona.config.agents || []) {
         this._a._moderatorPool.push(a.name)
@@ -196,6 +197,39 @@ export class Room {
   set _floor(v) { this._a._floor = v }
   get _wakeupSchedulers() { return this._a._wakeupSchedulers }
   set _wakeupSchedulers(v) { this._a._wakeupSchedulers = v }
+  get _pendingBackchannels() { return this._a._pendingBackchannels }
+  set _pendingBackchannels(v) { this._a._pendingBackchannels = v }
+
+  /**
+   * Queue a backchannel event for deferred broadcast.
+   *
+   * Trigger broadcasts during an active host turn race the host's own chat:
+   * the model fires `internal({trigger,target})` early in the orchestrator
+   * loop, then writes chat at a later turn. If the trigger broadcast goes
+   * out immediately, the visitor wakes BEFORE the chat arrives — and
+   * responds with no host context, then the chat arrives too late and goes
+   * to the visitor's pending-context queue. Deferring fixes the order:
+   * chat broadcasts first (via `_handleAssistantTextTurn` / the
+   * `send_chat_message` tool), then we flush the pending triggers so the
+   * visitor wakes with chat already in context.
+   *
+   * Pure-handoff turns (trigger fired but no chat produced) flush from the
+   * `_processMessage` and `_idleThought` finally blocks.
+   */
+  _queueBackchannel(event) {
+    if (!this._pendingBackchannels) this._a._pendingBackchannels = []
+    this._pendingBackchannels.push(event)
+  }
+
+  /** Broadcast and clear any queued backchannel events. */
+  _flushPendingBackchannels() {
+    if (!this._pendingBackchannels || this._pendingBackchannels.length === 0) return
+    const queued = this._pendingBackchannels
+    this._a._pendingBackchannels = []
+    for (const event of queued) {
+      this.broadcast(event)
+    }
+  }
 
   async initialize() {
     if (this.systemPrompt) return // already initialized
@@ -445,7 +479,31 @@ export class Room {
       }
       if (model) histEntry.model = model
       this.recordHistory(histEntry)
+      // Broadcast the full assistant_message so visitor agents (connected
+      // via SSE) receive what the host said. The live UI renders chat from
+      // the streamed text_delta + assistant_message_id sequence and has no
+      // case for live `assistant_message`, so this does not duplicate UI
+      // bubbles. Without this broadcast, host-to-visitor chat lands silent:
+      // visitors don't process raw text_delta, and assistant_message_id
+      // carries no text.
+      const assistantEvent = { type: 'assistant_message', text: chat.trim(), name: agentName, id: assistantMsgId, turnId }
+      if (model) assistantEvent.model = model
+      // Carry the LLM's addressing intent through to visitors.
+      // `_triggerTargetsThisTurn` is populated by `internal({trigger,target})`
+      // calls earlier in this turn — that is the model's structured
+      // routing decision, not a regex on the chat text. Visitors check
+      // `addressed_to` first when deciding whether to wake.
+      const triggers = this._triggerTargetsThisTurn ? [...this._triggerTargetsThisTurn] : []
+      const addressedNames = triggers.filter(t => t !== '__broadcast__')
+      if (addressedNames.length > 0) assistantEvent.addressed_to = addressedNames
+      if (triggers.includes('__broadcast__')) assistantEvent.addressed_all = true
+      this.broadcast(assistantEvent)
       this.broadcast({ type: 'assistant_message_id', id: assistantMsgId, turnId })
+      // Flush any backchannel triggers queued earlier in this turn now that
+      // chat has gone out. Visitors receive chat first (with the host's
+      // text in their context), then any trigger event — eliminating the
+      // race where the visitor woke and responded before the chat arrived.
+      this._flushPendingBackchannels()
     }
   }
 
@@ -615,15 +673,9 @@ export class Room {
   _autoNudgeMentionedAgents(publicText) {
     if (!publicText) return
 
-    // Home room: nudge visiting agents (config.agents)
-    if (this._pendingRoom === 'home') {
-      const knownAgents = (this.persona.config.agents || []).map(a => a.name)
-      for (const agentName of knownAgents) {
-        const mentionPattern = new RegExp(`\\b${agentName}\\b`, 'i')
-        if (!mentionPattern.test(publicText)) continue
-        this.addBackchannelMessage('system', `Hey ${agentName}, you were just addressed in chat.`)
-      }
-    }
+    // Home room: visitors self-trigger when they receive a host
+    // assistant_message that addresses them (see _handleRemoteEvent).
+    // No host-side nudge needed.
 
     // Remote room: nudge the room's agent via room client
     if (this._pendingRoom && this._pendingRoom !== 'home') {
@@ -714,7 +766,45 @@ export class Room {
         }
       }
     } else if (event.type === 'assistant_message') {
-      // Host agent responded — don't add to visitor context
+      // Host's chat — visitors must see it so they have conversational
+      // context and can decide whether to respond. Without this branch,
+      // host-to-visitor chat lands silent: the SSE broadcast arrives but
+      // the message is dropped, leaving the visitor unable to react when
+      // the host addresses them by name.
+      if (event.dm_from || event.dm_to) return // DM responses, not group chat
+      const fromName = event.name
+      if (!fromName) return
+      const myName = this.persona.config.display_name
+      if (fromName === myName) return // own message echoed back
+
+      this._safeAppendMessage({ role: 'user', content: `${fromName}: ${event.text}` })
+
+      // Decide whether to wake.
+      //   1. AUTHORITATIVE: event.addressed_to / event.addressed_all — the
+      //      host's structured routing intent, populated from
+      //      `internal({trigger,target})` calls during the same turn.
+      //      LLM-routed, not regex-routed.
+      //   2. FALLBACK: parser-detected addressing for the case where the
+      //      model wrote the visitor's name in a vocative position but
+      //      forgot the trigger call. The structural parser is the same
+      //      one the host runs on inbound user messages — not pure
+      //      substring matching.
+      // _backchannelTrigger gates same-turn re-triggering exactly the way
+      // an inbound trigger would, so a chain of host-says/visitor-responds
+      // can't loop.
+      let isAddressed = event.addressed_all === true || (Array.isArray(event.addressed_to) && event.addressed_to.includes(myName))
+      if (!isAddressed) {
+        const parsed = this._parseAddressing(event.text)
+        isAddressed = !!(parsed && parsed.includes(myName))
+      }
+      if (!isAddressed) return
+      if (this.busy) {
+        console.log(`[${this.persona.config.name}] Host addressed me but I'm busy — context appended, will respond next turn`)
+        return
+      }
+      const triggerText = `(${fromName} addressed you in the chat above — respond.)`
+      this._processMessage(routeRoom, 'system', triggerText, { _silent: true, _backchannelTrigger: true })
+        .catch(err => console.error(`[${this.persona.config.name}] Auto-response error:`, err.message))
     } else if (event.type === 'backchannel') {
       const myName = this.persona.config.display_name
       // Skip if targeted to a different agent
@@ -1382,6 +1472,10 @@ export class Room {
         }
       }
     } finally {
+      // Flush any backchannel triggers that did NOT get coupled to a chat
+      // broadcast this turn (pure-handoff: model triggered without producing
+      // text). Without this flush, those visitors never wake.
+      this._flushPendingBackchannels()
       this.busy = false
       this._pendingRoom = null
       this._backchannelTrigger = false
@@ -1585,6 +1679,9 @@ export class Room {
       console.error(`[${this.persona.config.name}] Idle thought error:`, err.message)
       return false // failed
     } finally {
+      // Flush any backchannel triggers fired during idle that didn't get
+      // coupled to a chat broadcast (pure handoff out of an idle thought).
+      this._flushPendingBackchannels()
       this.busy = false
 
       // Flush any context messages that arrived while the agent was busy

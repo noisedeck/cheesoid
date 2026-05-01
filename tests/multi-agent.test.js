@@ -348,46 +348,137 @@ describe('Multi-agent room', () => {
     assert.ok(host.room.messages.length > msgCountBefore, 'message should be appended to context')
   })
 
-  it('auto-nudges mentioned agent via backchannel', async () => {
-    const hostDir = await createTestPersona('nudge-host', 'NudgeHost', {
+  it('host assistant_message is broadcast with name so visitors can attribute it', async () => {
+    const hostDir = await createTestPersona('broadcast-host', 'BroadcastHost', {
       agents: [{ name: 'Brad', secret: 'brad-secret' }],
     })
     const host = await startCheesoid(hostDir, 4011)
     servers.push(host)
 
-    const backchannelSends = []
-    host.room.addBackchannelMessage = (name, text, opts) => {
-      backchannelSends.push({ name, text, ...opts })
+    const broadcasts = []
+    const origBroadcast = host.room.broadcast.bind(host.room)
+    host.room.broadcast = (event) => {
+      broadcasts.push(event)
+      origBroadcast(event)
     }
 
     host.room._pendingRoom = 'home'
-    host.room._autoNudgeMentionedAgents('Hey Brad, what do you think about this?')
-    assert.equal(backchannelSends.length, 1)
-    assert.ok(backchannelSends[0].text.includes('Brad'))
+    host.room._handleAssistantTextTurn('Brad, can you take this one?', 'test-model')
+
+    const messages = broadcasts.filter(e => e.type === 'assistant_message')
+    assert.equal(messages.length, 1, 'should broadcast assistant_message for visitor consumption')
+    assert.equal(messages[0].name, 'BroadcastHost', 'broadcast must include host name')
+    assert.ok(messages[0].text.includes('Brad'))
+    assert.ok(messages[0].id, 'should carry an id')
   })
 
-  it('auto-nudges mentioned agent in public text', async () => {
-    const host = servers[servers.length - 1]
-    const backchannelSends = []
-    host.room.addBackchannelMessage = (name, text, opts) => {
-      backchannelSends.push({ name, text, ...opts })
-    }
+  it('visitor receiving host assistant_message appends it to context', async () => {
+    const visitorDir = await createTestPersona('visitor-ctx', 'Brad', {
+      rooms: [{ name: 'host-room', url: 'http://localhost:4099', secret: 's' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4014)
+    servers.push(visitor)
 
-    host.room._pendingRoom = 'home'
-    host.room._autoNudgeMentionedAgents('Hey Brad, check this out')
-    assert.equal(backchannelSends.length, 1, 'should nudge Brad')
+    const realClient = visitor.room.roomClients.get('host-room')
+    if (realClient) realClient.destroy()
+    visitor.room.roomClients.set('host-room', { sendMessage: async () => {}, sendBackchannel: async () => {}, sendEvent: async () => {}, destroy: () => {} })
+
+    const before = visitor.room.messages.length
+    visitor.room._handleRemoteEvent({ type: 'assistant_message', name: 'Host', text: 'Random remark, no addressing.' }, 'host-room')
+    const last = visitor.room.messages[visitor.room.messages.length - 1]
+    assert.equal(visitor.room.messages.length, before + 1, 'should append host chat to context')
+    assert.ok(last.content.includes('Host: Random remark'))
   })
 
-  it('does not nudge names that are not known agents', async () => {
-    const host = servers[servers.length - 1]
-    const backchannelSends = []
-    host.room.addBackchannelMessage = (name, text, opts) => {
-      backchannelSends.push({ name, text, ...opts })
+  it('visitor self-triggers when host addresses it by name', async () => {
+    const visitorDir = await createTestPersona('visitor-trig', 'Brad', {
+      rooms: [{ name: 'host-room', url: 'http://localhost:4099', secret: 's' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4016)
+    servers.push(visitor)
+
+    const realClient = visitor.room.roomClients.get('host-room')
+    if (realClient) realClient.destroy()
+    visitor.room.roomClients.set('host-room', { sendMessage: async () => {}, sendBackchannel: async () => {}, sendEvent: async () => {}, destroy: () => {} })
+
+    const calls = []
+    visitor.room._processMessage = async (room, name, text, opts) => {
+      calls.push({ room, name, text, opts })
     }
 
-    host.room._pendingRoom = 'home'
-    host.room._autoNudgeMentionedAgents('Hey random person, what do you think?')
-    assert.equal(backchannelSends.length, 0, 'should not nudge unknown names')
+    visitor.room._handleRemoteEvent({ type: 'assistant_message', name: 'Host', text: 'Brad, what do you think?' }, 'host-room')
+    await new Promise(r => setTimeout(r, 10))
+
+    assert.equal(calls.length, 1, 'addressed visitor should self-trigger')
+    assert.equal(calls[0].room, 'host-room')
+    assert.equal(calls[0].name, 'system')
+    assert.ok(calls[0].opts._silent, 'trigger must be silent (no broadcast back)')
+    assert.ok(calls[0].opts._backchannelTrigger, 'must mark as backchannel-triggered to prevent cascades')
+  })
+
+  it('visitor does NOT self-trigger when host chat does not address it', async () => {
+    const visitorDir = await createTestPersona('visitor-nontrig', 'Brad', {
+      rooms: [{ name: 'host-room', url: 'http://localhost:4099', secret: 's' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4017)
+    servers.push(visitor)
+
+    const realClient = visitor.room.roomClients.get('host-room')
+    if (realClient) realClient.destroy()
+    visitor.room.roomClients.set('host-room', { sendMessage: async () => {}, sendBackchannel: async () => {}, sendEvent: async () => {}, destroy: () => {} })
+
+    let triggered = false
+    visitor.room._processMessage = async () => { triggered = true }
+
+    visitor.room._handleRemoteEvent({ type: 'assistant_message', name: 'Host', text: 'Just thinking out loud here.' }, 'host-room')
+    await new Promise(r => setTimeout(r, 10))
+
+    assert.ok(!triggered, 'visitor should not respond when not addressed')
+  })
+
+  it('visitor ignores host assistant_message when busy', async () => {
+    const visitorDir = await createTestPersona('visitor-busy', 'Brad', {
+      rooms: [{ name: 'host-room', url: 'http://localhost:4099', secret: 's' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4018)
+    servers.push(visitor)
+
+    const realClient = visitor.room.roomClients.get('host-room')
+    if (realClient) realClient.destroy()
+    visitor.room.roomClients.set('host-room', { sendMessage: async () => {}, sendBackchannel: async () => {}, sendEvent: async () => {}, destroy: () => {} })
+
+    visitor.room.busy = true
+    let triggered = false
+    visitor.room._processMessage = async () => { triggered = true }
+
+    visitor.room._handleRemoteEvent({ type: 'assistant_message', name: 'Host', text: 'Brad, are you there?' }, 'host-room')
+    await new Promise(r => setTimeout(r, 10))
+
+    assert.ok(!triggered, 'busy visitor should defer rather than trigger mid-turn')
+    // Context still receives the host text — _safeAppendMessage queues it on
+    // _pendingContextMessages while busy, then flushes into messages at the
+    // end of the current turn so the visitor sees it on the next response.
+    const queued = visitor.room._pendingContextMessages || []
+    assert.ok(queued.some(m => m.content && m.content.includes('Brad, are you there?')),
+      'queued for next turn so the host chat is not lost')
+  })
+
+  it('visitor ignores DM-flagged assistant_message events (not group chat)', async () => {
+    const visitorDir = await createTestPersona('visitor-dm-skip', 'Brad', {
+      rooms: [{ name: 'host-room', url: 'http://localhost:4099', secret: 's' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4019)
+    servers.push(visitor)
+
+    const realClient = visitor.room.roomClients.get('host-room')
+    if (realClient) realClient.destroy()
+    visitor.room.roomClients.set('host-room', { sendMessage: async () => {}, sendBackchannel: async () => {}, sendEvent: async () => {}, destroy: () => {} })
+
+    const before = visitor.room.messages.length
+    visitor.room._handleRemoteEvent({
+      type: 'assistant_message', name: 'Host', text: 'Brad, private note', dm_from: 'Host', dm_to: 'Someone',
+    }, 'host-room')
+    assert.equal(visitor.room.messages.length, before, 'DM responses must not contaminate visitor group context')
   })
 
   it('auto-nudges mentioned agent via room client when visiting', async () => {
@@ -453,32 +544,206 @@ describe('Multi-agent room', () => {
     assert.equal(bcSends[0], 'Brad, this is your domain.')
   })
 
-  it('full coordination flow: mention → auto-nudge → backchannel delivered', async () => {
+  it('full host→visitor flow: host turn broadcasts assistant_message that the visitor consumes', async () => {
     const hostDir = await createTestPersona('coord-host', 'CoordHost', {
       agents: [{ name: 'Helper', secret: 'helper-secret' }],
     })
     const host = await startCheesoid(hostDir, 4013)
     servers.push(host)
 
-    // Track all backchannel messages added
-    const bcMessages = []
-    const origAddBc = host.room.addBackchannelMessage.bind(host.room)
-    host.room.addBackchannelMessage = (name, text, opts) => {
-      bcMessages.push({ name, text, ...opts })
-      origAddBc(name, text, opts)
+    // Subscribe a fake visitor SSE client — this is what RoomClient does in
+    // production. Capture every event the host broadcasts so we can verify
+    // the chat actually crosses the SSE boundary.
+    const events = []
+    const fakeRes = {
+      writableEnded: false,
+      writable: true,
+      on() {},
+      end() { fakeRes.writable = false; fakeRes.writableEnded = true },
+      write(chunk) {
+        const lines = chunk.toString().split('\n').filter(l => l.startsWith('data: '))
+        for (const line of lines) {
+          try { events.push(JSON.parse(line.slice(6))) } catch { /* ignore */ }
+        }
+        return true
+      },
     }
+    host.room.addClient(fakeRes, 'Helper', true)
 
-    // Simulate the post-response auto-nudge flow
     host.room._pendingRoom = 'home'
-    host.room._autoNudgeMentionedAgents('Helper, can you look into this?')
+    host.room._handleAssistantTextTurn('Helper, can you look into this?', 'test-model')
 
-    assert.equal(bcMessages.length, 1)
-    assert.equal(bcMessages[0].name, 'system')
-    assert.ok(bcMessages[0].text.includes('Helper'))
+    const messages = events.filter(e => e.type === 'assistant_message')
+    assert.equal(messages.length, 1, 'visitor SSE must receive the host chat')
+    assert.equal(messages[0].name, 'CoordHost', 'attributable to the host')
+    assert.ok(messages[0].text.includes('Helper, can you look into this?'),
+      'full text reaches the visitor — not just an id')
+  })
 
-    // Verify it was appended to agent context
-    const lastMsg = host.room.messages[host.room.messages.length - 1]
-    assert.ok(lastMsg.content.includes('backchannel'))
-    assert.ok(lastMsg.content.includes('Helper'))
+  it('host chat carries addressed_to derived from internal({trigger,target}) calls in same turn', async () => {
+    const dir = await createTestPersona('addr-host', 'AddrHost', {
+      agents: [{ name: 'Blue', secret: 's' }, { name: 'Green', secret: 's' }],
+    })
+    const persona = await loadPersona(dir)
+    const room = new Room(persona)
+
+    // Simulate the orchestrator state: a turn populated _triggerTargetsThisTurn
+    // by calling internal({trigger,target}) earlier in the same loop.
+    room._pendingRoom = 'home'
+    room._triggerTargetsThisTurn = new Set(['Blue'])
+
+    const broadcasts = []
+    const orig = room.broadcast.bind(room)
+    room.broadcast = (event) => { broadcasts.push(event); orig(event) }
+
+    room._handleAssistantTextTurn('Hello, Blue.', 'test-model')
+
+    const chat = broadcasts.find(e => e.type === 'assistant_message')
+    assert.ok(chat, 'host chat must broadcast')
+    assert.deepEqual(chat.addressed_to, ['Blue'], 'addressing intent travels with the chat event')
+    assert.ok(!chat.addressed_all, 'individual target should not set addressed_all')
+    room.destroy()
+  })
+
+  it('host chat sets addressed_all when host did a broadcast trigger this turn', async () => {
+    const dir = await createTestPersona('addr-all', 'AddrAll', {
+      agents: [{ name: 'Blue', secret: 's' }],
+    })
+    const persona = await loadPersona(dir)
+    const room = new Room(persona)
+
+    room._pendingRoom = 'home'
+    room._triggerTargetsThisTurn = new Set(['__broadcast__'])
+
+    const broadcasts = []
+    const orig = room.broadcast.bind(room)
+    room.broadcast = (event) => { broadcasts.push(event); orig(event) }
+
+    room._handleAssistantTextTurn('Everyone, weigh in.', 'test-model')
+
+    const chat = broadcasts.find(e => e.type === 'assistant_message')
+    assert.equal(chat.addressed_all, true, 'broadcast trigger surfaces as addressed_all')
+    assert.ok(!chat.addressed_to, 'no per-name list when only __broadcast__ triggered')
+    room.destroy()
+  })
+
+  it('visitor wakes from addressed_to without parser involvement', async () => {
+    const visitorDir = await createTestPersona('addr-visitor', 'Blue', {
+      rooms: [{ name: 'host-room', url: 'http://localhost:4099', secret: 's' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4020)
+    servers.push(visitor)
+
+    const realClient = visitor.room.roomClients.get('host-room')
+    if (realClient) realClient.destroy()
+    visitor.room.roomClients.set('host-room', { sendMessage: async () => {}, sendBackchannel: async () => {}, sendEvent: async () => {}, destroy: () => {} })
+
+    const triggers = []
+    visitor.room._processMessage = async (...args) => { triggers.push(args) }
+
+    // Phrase the parser definitely cannot match — but addressed_to says
+    // we are addressed. Visitor should wake on the LLM-provided routing.
+    visitor.room._handleRemoteEvent({
+      type: 'assistant_message', name: 'Host',
+      text: 'Random thought, no vocative pattern at all.',
+      addressed_to: ['Blue'],
+    }, 'host-room')
+    await new Promise(r => setTimeout(r, 10))
+
+    assert.equal(triggers.length, 1, 'addressed_to is authoritative — visitor wakes regardless of phrasing')
+  })
+
+  it('visitor wakes from addressed_all (broadcast trigger) regardless of phrasing', async () => {
+    const visitorDir = await createTestPersona('addr-all-visitor', 'Blue', {
+      rooms: [{ name: 'host-room', url: 'http://localhost:4099', secret: 's' }],
+    })
+    const visitor = await startCheesoid(visitorDir, 4021)
+    servers.push(visitor)
+
+    const realClient = visitor.room.roomClients.get('host-room')
+    if (realClient) realClient.destroy()
+    visitor.room.roomClients.set('host-room', { sendMessage: async () => {}, sendBackchannel: async () => {}, sendEvent: async () => {}, destroy: () => {} })
+
+    const triggers = []
+    visitor.room._processMessage = async (...args) => { triggers.push(args) }
+
+    visitor.room._handleRemoteEvent({
+      type: 'assistant_message', name: 'Host',
+      text: 'I have an announcement.',
+      addressed_all: true,
+    }, 'host-room')
+    await new Promise(r => setTimeout(r, 10))
+
+    assert.equal(triggers.length, 1, 'broadcast addressing wakes everyone')
+  })
+
+  it('chat event broadcasts BEFORE deferred trigger backchannel — race fix', async () => {
+    const dir = await createTestPersona('order-host', 'OrderHost', {
+      agents: [{ name: 'Blue', secret: 's' }],
+    })
+    const persona = await loadPersona(dir)
+    const room = new Room(persona)
+
+    // Active host turn — internal({trigger,target}) will queue, not broadcast
+    room.busy = true
+    room._pendingRoom = 'home'
+    room._triggerTargetsThisTurn = new Set()
+    const memDir = await mkdtemp(join(tmpdir(), 'order-tools-'))
+    await writeFile(join(memDir, 'MEMORY.md'), '')
+    const tools = await (await import('../server/lib/tools.js')).loadTools(memDir, persona.config, null, null, room, null)
+
+    const events = []
+    const orig = room.broadcast.bind(room)
+    room.broadcast = (event) => { events.push(event); orig(event) }
+
+    // Step 1: model fires internal({trigger,target}) early in the turn
+    await tools.execute('internal', { trigger: true, target: 'Blue', backchannel: 'Blue, take this' })
+
+    // Should have queued, not broadcast
+    const triggersBeforeChat = events.filter(e => e.type === 'backchannel' && e.trigger)
+    assert.equal(triggersBeforeChat.length, 0,
+      'trigger broadcast must defer during active home turn — otherwise visitor wakes ungrounded')
+    assert.equal(room._pendingBackchannels.length, 1, 'trigger queued for end-of-turn flush')
+
+    // Step 2: model writes chat at later orchestrator turn
+    room._handleAssistantTextTurn('Hello, Blue.', 'test-model')
+
+    // Order check: chat event index < backchannel event index
+    const chatIdx = events.findIndex(e => e.type === 'assistant_message')
+    const trigIdx = events.findIndex(e => e.type === 'backchannel' && e.trigger)
+    assert.ok(chatIdx >= 0, 'chat broadcast fires')
+    assert.ok(trigIdx >= 0, 'trigger broadcast fires after chat')
+    assert.ok(chatIdx < trigIdx, `chat (idx ${chatIdx}) must broadcast BEFORE trigger (idx ${trigIdx})`)
+    assert.equal(room._pendingBackchannels.length, 0, 'queue drained after chat broadcast')
+    room.destroy()
+  })
+
+  it('pure handoff: trigger without chat still flushes at end of turn', async () => {
+    const dir = await createTestPersona('handoff-host', 'HandoffHost', {
+      agents: [{ name: 'Blue', secret: 's' }],
+    })
+    const persona = await loadPersona(dir)
+    const room = new Room(persona)
+
+    room.busy = true
+    room._pendingRoom = 'home'
+    room._triggerTargetsThisTurn = new Set()
+    const memDir = await mkdtemp(join(tmpdir(), 'handoff-tools-'))
+    await writeFile(join(memDir, 'MEMORY.md'), '')
+    const tools = await (await import('../server/lib/tools.js')).loadTools(memDir, persona.config, null, null, room, null)
+
+    const events = []
+    const orig = room.broadcast.bind(room)
+    room.broadcast = (event) => { events.push(event); orig(event) }
+
+    await tools.execute('internal', { trigger: true, target: 'Blue', backchannel: 'over to you' })
+    assert.equal(events.filter(e => e.type === 'backchannel').length, 0, 'queued, not broadcast')
+
+    // No chat fires this turn — simulate end-of-turn flush
+    room._flushPendingBackchannels()
+    const trigs = events.filter(e => e.type === 'backchannel' && e.trigger)
+    assert.equal(trigs.length, 1, 'pure-handoff trigger must still fire at end of turn')
+    assert.equal(trigs[0].target, 'Blue')
+    room.destroy()
   })
 })
