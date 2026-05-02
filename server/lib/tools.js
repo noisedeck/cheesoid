@@ -349,14 +349,14 @@ function buildRoomTools(room, config) {
           if (client) {
             await client.sendReaction(input.messageId, input.emoji, 'add')
             console.log(`[${agentName}] react_to_message relayed to ${pendingRoom}`)
-            return { output: successOutput }
+            return { output: successOutput, _endTurn: true }
           }
           console.log(`[${agentName}] react_to_message: no room client for ${pendingRoom}`)
           return { output: 'Cannot reach host room to deliver reaction.', is_error: true }
         }
         room.addReaction(agentName, input.messageId, input.emoji, 'add')
         console.log(`[${agentName}] react_to_message succeeded`)
-        return { output: successOutput }
+        return { output: successOutput, _endTurn: true }
       }
       default:
         return { output: `Unknown room tool: ${name}`, is_error: true }
