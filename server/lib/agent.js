@@ -190,13 +190,21 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
           toolChoice = heuristic
           console.log(`[intent-router] toolChoice=${toolChoice} (heuristic) text="${(lastUserText || '').slice(0, 40)}"`)
         } else {
-          toolChoice = await provider.classifyIntent({
-            model: config.model,
-            system: systemPrompt,
-            messages,
-            tools: tools.definitions,
-          })
-          console.log(`[intent-router] toolChoice=${toolChoice} (llm-classifier)`)
+          try {
+            toolChoice = await provider.classifyIntent({
+              model: config.model,
+              system: systemPrompt,
+              messages,
+              tools: tools.definitions,
+            })
+            console.log(`[intent-router] toolChoice=${toolChoice} (llm-classifier)`)
+          } catch (err) {
+            // Classifier failure is non-fatal — defaulting to 'auto' lets the
+            // orchestrator decide. The subsequent streamMessage call iterates
+            // the fallback chain if the provider is genuinely down.
+            console.log(`[intent-router] classifier failed (${err.message}) — defaulting to 'auto'`)
+            toolChoice = 'auto'
+          }
         }
       }
 
@@ -673,12 +681,20 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
         if (heuristic !== 'uncertain') {
           toolChoice = heuristic
         } else {
-          toolChoice = await orchestrator.classifyIntent({
-            model: config.model,
-            system: systemPrompt,
-            messages,
-            tools: tools.definitions,
-          })
+          try {
+            toolChoice = await orchestrator.classifyIntent({
+              model: config.model,
+              system: systemPrompt,
+              messages,
+              tools: tools.definitions,
+            })
+          } catch (err) {
+            // Classifier failure is non-fatal — defaulting to 'auto' lets the
+            // orchestrator decide. The subsequent streamMessage call iterates
+            // the fallback chain if the provider is genuinely down.
+            console.log(`[intent-router] classifier failed (${err.message}) — defaulting to 'auto'`)
+            toolChoice = 'auto'
+          }
         }
       }
     }
