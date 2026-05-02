@@ -281,6 +281,143 @@ describe('runHybridAgent', () => {
     assert.ok(events.find(e => e.type === 'done'))
   })
 
+  it('iterates orchestrator fallback chain when nudging an empty post-tool turn', async () => {
+    // Regression: when the orchestrator returned empty text after a tool
+    // result, _nudgeIfEmpty bypassed the fallback wrapper and threw on a
+    // single primary failure. ehsre saw "attention layer unavailable" with
+    // only gemini-2.5-pro in triedModels even though claude-haiku-4-5 and
+    // SecuredTEE/gemma4-31b were configured as fallbacks.
+    const failingPrimary = {
+      streamMessage: mock.fn(async () => {
+        const err = new Error('Gemini server error 503: high demand')
+        err.status = 503
+        throw err
+      }),
+    }
+    const workingFallback = makeProvider({
+      responses: [
+        // Turn 1: orchestrator emits a tool_use (e.g. react_to_message)
+        {
+          contentBlocks: [{ type: 'tool_use', id: 'toolu_1', name: 'react', input: { x: 1 } }],
+          stopReason: 'tool_use',
+          usage: { input_tokens: 50, output_tokens: 5 },
+        },
+        // Turn 2 (post-tool): empty content — triggers _nudgeIfEmpty
+        {
+          contentBlocks: [],
+          stopReason: 'end_turn',
+          usage: { input_tokens: 50, output_tokens: 0 },
+        },
+        // Nudge call: must reach this fallback when primary 503s
+        {
+          contentBlocks: [{ type: 'text', text: 'OK done.' }],
+          stopReason: 'end_turn',
+          usage: { input_tokens: 50, output_tokens: 5 },
+        },
+      ],
+    })
+
+    const mockRegistry = {
+      resolve(modelString) {
+        if (modelString === 'claude-haiku-4-5') return { modelId: 'claude-haiku-4-5', provider: workingFallback }
+        return { modelId: modelString, provider: failingPrimary }
+      },
+    }
+
+    const tools = makeTools([{ name: 'react', description: 'react' }])
+    const config = {
+      provider: failingPrimary,
+      model: 'gemini-2.5-pro',
+      layer: 'attention',
+      orchestratorFallbackModels: ['claude-haiku-4-5'],
+      registry: mockRegistry,
+    }
+    const { events, onEvent } = collectEvents()
+
+    const result = await runHybridAgent('system', [{ role: 'user', content: 'hi' }], tools, config, onEvent)
+
+    // Primary tried 3 times (turn 1, turn 2, nudge); fallback handles all 3
+    assert.equal(failingPrimary.streamMessage.mock.callCount(), 3)
+    assert.equal(workingFallback.streamMessage.mock.callCount(), 3)
+
+    // Final assistant message is the nudge text from the fallback model
+    const lastAssistant = result.messages[result.messages.length - 1]
+    assert.equal(lastAssistant.role, 'assistant')
+    assert.ok(lastAssistant.content.some(b => b.type === 'text' && b.text === 'OK done.'))
+
+    // Three model_fallback events — one per call that fell through
+    const fallbackEvents = events.filter(e => e.type === 'model_fallback')
+    assert.equal(fallbackEvents.length, 3)
+    assert.ok(fallbackEvents.every(e => e.from === 'gemini-2.5-pro' && e.to === 'claude-haiku-4-5'))
+  })
+
+  it('surfaces layered error with full triedModels list when nudge fallback chain also fails', async () => {
+    // Companion regression: when the entire chain (primary + fallback) is
+    // down during the nudge, the surfaced error must list every model that
+    // was tried, not just the primary.
+    const failingPrimary = {
+      streamMessage: mock.fn(async () => {
+        const err = new Error('Gemini server error 503')
+        err.status = 503
+        throw err
+      }),
+    }
+    let fallbackCalls = 0
+    const failingFallback = {
+      streamMessage: mock.fn(async () => {
+        // Let the main loop succeed (turns 1 and 2) by not throwing on
+        // those. Throw only on the nudge call (the third one).
+        fallbackCalls++
+        if (fallbackCalls === 1) {
+          // Turn 1: tool_use
+          return {
+            contentBlocks: [{ type: 'tool_use', id: 'toolu_1', name: 'react', input: { x: 1 } }],
+            stopReason: 'tool_use',
+            usage: { input_tokens: 50, output_tokens: 5 },
+          }
+        }
+        if (fallbackCalls === 2) {
+          // Turn 2: empty content
+          return {
+            contentBlocks: [],
+            stopReason: 'end_turn',
+            usage: { input_tokens: 50, output_tokens: 0 },
+          }
+        }
+        // Nudge: also fails
+        const err = new Error('claude also down')
+        err.status = 500
+        throw err
+      }),
+    }
+
+    const mockRegistry = {
+      resolve(modelString) {
+        if (modelString === 'claude-haiku-4-5') return { modelId: 'claude-haiku-4-5', provider: failingFallback }
+        return { modelId: modelString, provider: failingPrimary }
+      },
+    }
+
+    const tools = makeTools([{ name: 'react', description: 'react' }])
+    const config = {
+      provider: failingPrimary,
+      model: 'gemini-2.5-pro',
+      layer: 'attention',
+      orchestratorFallbackModels: ['claude-haiku-4-5'],
+      registry: mockRegistry,
+    }
+    const { onEvent } = collectEvents()
+
+    await assert.rejects(
+      runHybridAgent('system', [{ role: 'user', content: 'hi' }], tools, config, onEvent),
+      (err) => {
+        assert.equal(err.layer, 'attention')
+        assert.deepEqual(err.triedModels, ['gemini-2.5-pro', 'claude-haiku-4-5'])
+        return true
+      },
+    )
+  })
+
   it('surfaces layered error with full triedModels list when entire fallback chain fails', async () => {
     const primary = {
       streamMessage: mock.fn(async () => {

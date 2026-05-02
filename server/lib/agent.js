@@ -353,7 +353,7 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
 
   // If the model ended with no text after tool results, make one more call
   // with tools disabled so it summarizes in its own voice.
-  await _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsage, onEvent)
+  await _nudgeIfEmpty(messages, config, systemPrompt, totalUsage, onEvent)
 
   onEvent({ type: 'done', model: config.model, usage: { input_tokens: totalUsage.input_tokens + reasonerUsage.input_tokens, output_tokens: totalUsage.output_tokens + reasonerUsage.output_tokens } })
   return { messages, usage: totalUsage }
@@ -364,7 +364,7 @@ export async function runAgent(systemPrompt, messages, tools, config, onEvent) {
  * tool results, make one more API call with tools disabled so the model
  * provides a followup in its own voice.
  */
-async function _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsage, onEvent) {
+async function _nudgeIfEmpty(messages, config, systemPrompt, totalUsage, onEvent) {
   const lastAssistant = messages[messages.length - 1]
   if (lastAssistant?.role !== 'assistant') return
 
@@ -382,26 +382,22 @@ async function _nudgeIfEmpty(messages, provider, config, systemPrompt, totalUsag
   // Remove the empty assistant message to maintain valid alternation
   messages.pop()
 
-  let result
-  try {
-    result = await provider.streamMessage(
-      {
-        model: config.model,
-        maxTokens: 4096,
-        system: systemPrompt,
-        messages,
-        tools: [],
-        serverTools: [],
-        thinkingBudget: null,
-      },
-      onEvent,
-    )
-  } catch (err) {
-    // Enrich with context if missing — nudge uses the orchestrator model
-    err.layer = err.layer || config.layer
-    err.triedModels = err.triedModels || [config.model]
-    throw err
-  }
+  // Route through the fallback wrapper so a transient failure on the primary
+  // model iterates through configured fallbacks instead of giving up after
+  // one attempt.
+  const result = await callOrchestratorWithFallback(
+    config,
+    {
+      model: config.model,
+      maxTokens: 4096,
+      system: systemPrompt,
+      messages,
+      tools: [],
+      serverTools: [],
+      thinkingBudget: null,
+    },
+    onEvent,
+  )
 
   totalUsage.input_tokens += result.usage.input_tokens
   totalUsage.output_tokens += result.usage.output_tokens
@@ -1057,11 +1053,10 @@ export async function runHybridAgent(systemPrompt, messages, tools, config, onEv
 
   // If the orchestrator ended with no text after tool results, make one more call
   // with tools disabled so it summarizes in its own voice.
-  // Use config.provider (not the captured `orchestrator`) because step_up may have changed it.
   // Skip the nudge if a tool explicitly ended the turn (e.g. internal trigger
   // delegated to another agent — the moderator should NOT then narrate).
   if (!endTurnByTool && !config.skipEmptyNudge) {
-    await _nudgeIfEmpty(messages, config.provider, config, systemPrompt, totalUsage, onEvent)
+    await _nudgeIfEmpty(messages, config, systemPrompt, totalUsage, onEvent)
   }
 
   metrics.totalLatencyMs = Date.now() - metrics.startTime
