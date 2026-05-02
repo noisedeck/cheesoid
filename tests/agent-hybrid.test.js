@@ -630,4 +630,89 @@ it('executor fallback uses registry when available', async () => {
       `assistant_text_turn must come before tool_result (text_turn at ${firstTextTurnIdx}, tool_result at ${firstToolResultIdx})`,
     )
   })
+
+  it('breaks the orchestrator loop and skips the nudge after react_to_message', async () => {
+    // After react_to_message success, the tool returns _endTurn: true.
+    // runHybridAgent must break the loop immediately, NOT call streamMessage
+    // again, and NOT invoke _nudgeIfEmpty.
+    const provider = makeProvider({
+      responses: [
+        // Turn 1: orchestrator emits a react_to_message tool_use
+        {
+          contentBlocks: [{ type: 'tool_use', id: 'toolu_react_1', name: 'react_to_message', input: { messageId: 'abcd1234', emoji: '👍' } }],
+          stopReason: 'tool_use',
+          usage: { input_tokens: 50, output_tokens: 5 },
+        },
+        // No further turns should be requested. If the loop wrongly continues,
+        // this response is what would be returned next — we assert it isn't.
+        {
+          contentBlocks: [{ type: 'text', text: 'SHOULD_NOT_REACH' }],
+          stopReason: 'end_turn',
+          usage: { input_tokens: 50, output_tokens: 5 },
+        },
+      ],
+    })
+    // tools.execute returns _endTurn: true to mimic the real react_to_message
+    // success contract (Task 1).
+    const tools = {
+      definitions: [{ name: 'react_to_message', description: 'react' }],
+      execute: mock.fn(async () => ({ output: 'Reaction delivered.', _endTurn: true })),
+    }
+    const config = { provider, model: 'claude-sonnet-4-20250514' }
+    const { events, onEvent } = collectEvents()
+
+    const result = await runHybridAgent('system', [{ role: 'user', content: 'react with thumbs' }], tools, config, onEvent)
+
+    // Exactly one orchestrator call — the loop must break after react.
+    assert.equal(provider.streamMessage.mock.callCount(), 1)
+    assert.equal(tools.execute.mock.callCount(), 1)
+
+    // Final message history: user, assistant(tool_use), user(tool_result).
+    // No fourth assistant message — _nudgeIfEmpty did not fire.
+    assert.equal(result.messages.length, 3)
+    assert.equal(result.messages[0].role, 'user')
+    assert.equal(result.messages[1].role, 'assistant')
+    assert.equal(result.messages[1].content[0].type, 'tool_use')
+    assert.equal(result.messages[2].role, 'user')
+    assert.equal(result.messages[2].content[0].type, 'tool_result')
+
+    // No "SHOULD_NOT_REACH" text leaked into events.
+    assert.ok(!events.some(e => e.type === 'assistant_text_turn' && e.text === 'SHOULD_NOT_REACH'))
+
+    // done event still fires.
+    assert.ok(events.find(e => e.type === 'done'))
+  })
+
+  it('does NOT short-circuit the loop when react_to_message returns an error', async () => {
+    // Error returns omit _endTurn, so the model must get another turn to
+    // recover / explain. Verify the loop continues normally on react errors.
+    const provider = makeProvider({
+      responses: [
+        {
+          contentBlocks: [{ type: 'tool_use', id: 'toolu_react_1', name: 'react_to_message', input: { messageId: 'bad', emoji: '👍' } }],
+          stopReason: 'tool_use',
+          usage: { input_tokens: 50, output_tokens: 5 },
+        },
+        {
+          contentBlocks: [{ type: 'text', text: 'Sorry, I had a bad ID.' }],
+          stopReason: 'end_turn',
+          usage: { input_tokens: 50, output_tokens: 8 },
+        },
+      ],
+    })
+    const tools = {
+      definitions: [{ name: 'react_to_message', description: 'react' }],
+      execute: mock.fn(async () => ({ output: 'messageId not found.', is_error: true })),
+    }
+    const config = { provider, model: 'claude-sonnet-4-20250514' }
+    const { onEvent } = collectEvents()
+
+    const result = await runHybridAgent('system', [{ role: 'user', content: 'react' }], tools, config, onEvent)
+
+    // Two orchestrator calls — error did not end the turn.
+    assert.equal(provider.streamMessage.mock.callCount(), 2)
+    // Final assistant message is the recovery text.
+    const lastAssistant = result.messages[result.messages.length - 1]
+    assert.ok(lastAssistant.content.some(b => b.type === 'text' && b.text === 'Sorry, I had a bad ID.'))
+  })
 })
