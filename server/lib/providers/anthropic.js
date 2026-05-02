@@ -6,6 +6,14 @@ function isOpusModel(model) {
   return model && model.includes('opus')
 }
 
+// Cheesoid's canonical toolChoice value for "must call a tool" is 'required'
+// (OpenAI/Vertex convention). Anthropic only accepts auto|any|tool|none, with
+// 'any' being the equivalent of 'required'. Mirrors the modeMap in
+// providers/gemini.js.
+export function toAnthropicToolChoice(toolChoice) {
+  return toolChoice === 'required' ? 'any' : toolChoice
+}
+
 function isUnavailableError(err) {
   if (err.status === 529 || err.status === 503 || err.status === 404) return true
   // Overloaded errors can also arrive as SSE events with type 'overloaded_error'
@@ -90,7 +98,7 @@ export function createAnthropicProvider(_config) {
       }
 
       if (toolChoice && params.tools.length > 0) {
-        params.tool_choice = { type: toolChoice }
+        params.tool_choice = { type: toAnthropicToolChoice(toolChoice) }
       }
 
       if (thinkingBudget && isOpusModel(activeModel)) {
