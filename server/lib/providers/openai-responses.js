@@ -131,6 +131,28 @@ export async function _processResponsesStream(stream, onEvent) {
       const hasToolCalls = resp?.output?.some(o => o.type === 'function_call')
       stopReason = hasToolCalls ? 'tool_use' : 'end_turn'
     }
+
+    // SSE error event — the OpenAI Responses API delivers most failures
+    // (insufficient_quota, model_unavailable, server errors) as a 200
+    // response with an `error` event in the stream rather than an HTTP
+    // status code. Throwing here lets the orchestrator fallback chain
+    // engage instead of silently returning empty contentBlocks.
+    if (type === 'error') {
+      const err = new Error(event.error?.message || 'OpenAI Responses stream error')
+      err.errorType = event.error?.type || event.error?.code || 'stream_error'
+      err.status = event.error?.type === 'insufficient_quota' ? 429 : 500
+      throw err
+    }
+
+    // Defensive: response.failed normally follows an `error` event we
+    // already threw on, but if it arrives standalone we still must throw.
+    if (type === 'response.failed') {
+      const respErr = event.response?.error
+      const err = new Error(respErr?.message || 'OpenAI Responses request failed')
+      err.errorType = respErr?.code || respErr?.type || 'response_failed'
+      err.status = 500
+      throw err
+    }
   }
 
   // Finalize tool calls into content blocks
