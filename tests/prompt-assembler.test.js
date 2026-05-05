@@ -77,6 +77,41 @@ describe('assemblePrompt', () => {
     assert.ok(result.includes('Topic notes.'))
   })
 
+  it('includes session ephemerality section in Claude path', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'System.',
+    })
+    const result = await assemblePrompt(dir, {
+      chat: { prompt: 'prompts/system.md' },
+      memory: { dir: 'memory/', auto_read: [] },
+    })
+
+    assert.ok(result.includes('Session Ephemerality'), 'header present')
+    assert.ok(result.includes('redeployed at any time'), 'risk framing present')
+    assert.ok(result.includes('append_memory'), 'concrete tool reference present')
+    assert.ok(result.includes("Don't fixate"), 'over-saving guardrail present')
+  })
+
+  it('includes session ephemerality section in openai-compat layered path', async () => {
+    const dir = await makePersona({
+      'SOUL.md': 'Soul.',
+      'prompts/system.md': 'System.',
+    })
+    const result = await assemblePrompt(dir, {
+      provider: 'openai-compat',
+      chat: { prompt: 'prompts/system.md' },
+      memory: { dir: 'memory/', auto_read: [] },
+    }, [], { isClaude: false })
+
+    assert.ok(Array.isArray(result), 'openai-compat returns array of system messages')
+    const allContent = result.map(s => s.content).join('\n')
+    assert.ok(allContent.includes('Session Ephemerality'))
+    assert.ok(allContent.includes('redeployed at any time'))
+    assert.ok(allContent.includes('append_memory'))
+    assert.ok(allContent.includes("Don't fixate"))
+  })
+
   it('includes source trust hierarchy before memory', async () => {
     const dir = await makePersona({
       'SOUL.md': 'Soul.',

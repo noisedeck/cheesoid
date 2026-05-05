@@ -279,6 +279,18 @@ export async function assemblePrompt(personaDir, config, plugins = [], {
 
   operationalSections.push(SOCIAL_TOOLS)
 
+  const SESSION_EPHEMERALITY = [
+    `## Session Ephemerality`,
+    ``,
+    `Your container can be redeployed at any time without warning. In-memory state is lost; only your auto-read memory files, soul, system prompt, and persisted chat history survive.`,
+    ``,
+    `If a user gives you a new standing directive ("from now on, always X" / "stop doing Y"), persist it with \`append_memory\` before continuing — otherwise it's gone on next restart and the user has to repeat themselves. Same applies to runbook steps and durable findings.`,
+    ``,
+    `Don't fixate on this. Don't narrate saving. Don't save every observation. Save the things a future you would need to know.`,
+  ].join('\n')
+
+  operationalSections.push(SESSION_EPHEMERALITY)
+
   // Plugin skills
   for (const plugin of plugins) {
     for (const skill of plugin.skills) {
